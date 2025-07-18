@@ -1,0 +1,1 @@
+ALTER TABLE "car" ADD COLUMN "discountedprice" integer DEFAULT 0 NOT NULL;

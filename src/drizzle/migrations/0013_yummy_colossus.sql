@@ -1,0 +1,1 @@
+ALTER TABLE "car" ADD COLUMN "ispopular" boolean DEFAULT false NOT NULL;
