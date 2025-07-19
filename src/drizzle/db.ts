@@ -5,7 +5,8 @@ import dotenv from 'dotenv';
 import { carModel, carRelations } from '../modules/car/carmodel';
 import { reviewModel, reviewRelations } from '../modules/review/reviewmodel';
 import { UserTable, vendorRelations } from '../modules/user/usermodel';
-import { parkingTable } from '../modules/parking/parkingmodel';
+import { parkingTable, parkingRelations } from '../modules/parking/parkingmodel';
+import { bookingsTable, bookingRelations } from '../modules/booking/bookingmodel';
 dotenv.config();
 
 // For Drizzle Studio and migrations
@@ -22,6 +23,13 @@ const schema = {
   reviewModel,
   UserTable,
   parkingTable,
+  bookingsTable,
+  // Include all relations
+  carRelations,
+  reviewRelations,
+  vendorRelations,
+  parkingRelations,
+  bookingRelations,
 };
 
 // For serverless operations

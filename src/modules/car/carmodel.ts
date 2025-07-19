@@ -4,6 +4,7 @@ import { boolean, integer, jsonb, pgTable, serial, timestamp, varchar } from "dr
 import { reviewModel } from "../review/reviewmodel";
 import { UserTable } from "../user/usermodel";
 import { parkingTable } from "../parking/parkingmodel";
+import { bookingsTable } from "../booking/bookingmodel";
 
 export const carModel = pgTable("car", {
     id: serial("id").primaryKey(),
@@ -34,7 +35,7 @@ export const carModel = pgTable("car", {
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 })
 
-export const carRelations = relations(carModel, ({ one }) => ({
+export const carRelations = relations(carModel, ({ one, many }) => ({
     vendor: one(UserTable, {
         fields: [carModel.vendorid],
         references: [UserTable.id],
@@ -43,5 +44,7 @@ export const carRelations = relations(carModel, ({ one }) => ({
         fields: [carModel.parkingid],
         references: [parkingTable.id],
     }),
+    // Add reverse relation for bookings
+    bookings: many(bookingsTable),
 }));
 

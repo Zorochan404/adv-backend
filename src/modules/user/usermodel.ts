@@ -1,6 +1,7 @@
 import { pgTable, serial, varchar, integer, bigint, timestamp, pgEnum, boolean, text, doublePrecision } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { parkingTable } from "../parking/parkingmodel";
+import { bookingsTable } from "../booking/bookingmodel";
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "vendor" , "parkingincharge"]);
 
@@ -33,10 +34,12 @@ export const UserTable = pgTable("users", {
 });
 
 // Note: The relation to cars is defined in the car model to avoid circular imports
-export const vendorRelations = relations(UserTable, ({ one }) => ({
+export const vendorRelations = relations(UserTable, ({ one, many }) => ({
   parking: one(parkingTable, {
     fields: [UserTable.parkingid],
     references: [parkingTable.id],
   }),
+  // Add reverse relation for bookings
+  bookings: many(bookingsTable),
 }));
 

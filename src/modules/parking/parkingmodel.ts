@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { pgTable, serial, varchar, integer, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { UserTable } from "../user/usermodel";
+import { bookingsTable } from "../booking/bookingmodel";
 
 export const parkingTable = pgTable("parkings", {
   id: serial("id").primaryKey(),
@@ -18,4 +19,15 @@ export const parkingTable = pgTable("parkings", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Define relations for parking table
+export const parkingRelations = relations(parkingTable, ({ many }) => ({
+  // Add reverse relations for bookings
+  pickupBookings: many(bookingsTable, {
+    relationName: "pickupParking",
+  }),
+  dropoffBookings: many(bookingsTable, {
+    relationName: "dropoffParking",
+  }),
+}));
 
