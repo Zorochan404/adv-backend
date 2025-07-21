@@ -200,3 +200,20 @@ export const addParkingIncharge = asyncHandler(async (req: Request & { user?: { 
         throw new ApiError(500, "Failed to add parking incharge");
     }
 });
+
+
+export const getusersbyvendor = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
+    try{
+        if((req as any).user && (req as any).user.role === "admin" || (req as any).user.role === "parkingincharge"){
+        const users = await db.select().from(UserTable).where(eq(UserTable.role, "vendor"));
+        return res.status(200).json(new ApiResponse(200, users, "Users fetched successfully"));
+    }
+    else{
+        throw new ApiError(403, "You are not authorized to fetch users by vendor");
+    }
+    }
+    catch(error){
+        console.error('Error fetching users by vendor:', error);
+        throw new ApiError(500, "Failed to fetch users by vendor");
+    }
+});

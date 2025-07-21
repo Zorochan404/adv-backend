@@ -3,7 +3,7 @@ import { db } from "../../drizzle/db";
 import { bookingsTable } from "./bookingmodel";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiResponse } from "../utils/apiResponse";
-import { eq } from "drizzle-orm";
+import { eq, between, and, gte, lte } from "drizzle-orm";
 import { carModel } from "../car/carmodel";
 
 // Extend the Request interface to include 'user' property
@@ -67,6 +67,87 @@ export const getBookings = asyncHandler (async (req: Request, res: Response) => 
     try {
         const booking = await db.select().from(bookingsTable);
         res.status(200).json(new ApiResponse(200, booking, "Bookings fetched successfully"));
+    } catch (error) {
+        console.log(error);
+        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    }
+});
+
+
+export const getBookingByDateRange = asyncHandler (async (req: Request, res: Response) => {
+    try {
+        const { startDate, endDate } = req.body;
+        
+        // Validate input
+        if (!startDate || !endDate) {
+            return res.status(400).json(new ApiResponse(400, null, "Start date and end date are required"));
+        }
+        
+        // Convert string dates to Date objects
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+   
+        if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+            return res.status(400).json(new ApiResponse(400, null, "Invalid date format"));
+        }
+
+        const bookings = await db
+            .query.bookingsTable.findMany({
+                where: (bookingsTable, {and, lte, gte}) => and(
+                    lte(bookingsTable.startDate, endDateObj),
+                    gte(bookingsTable.endDate, startDateObj)
+                ),
+                with: {
+                    car: true,
+                    pickupParking: true,
+                    dropoffParking: true,
+                    user: true
+                }
+            })
+            
+        
+        res.status(200).json(new ApiResponse(200, bookings, "Bookings fetched successfully"));
+    } catch (error) {
+        console.log(error);
+        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    }
+});
+
+
+export const getBookingByDateRangeByCarId = asyncHandler (async (req: Request, res: Response) => {
+    try {
+        const { startDate, endDate } = req.body;
+        
+        // Validate input
+        if (!startDate || !endDate) {
+            return res.status(400).json(new ApiResponse(400, null, "Start date and end date are required"));
+        }
+        
+        // Convert string dates to Date objects
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+   
+        if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+            return res.status(400).json(new ApiResponse(400, null, "Invalid date format"));
+        }
+
+        const bookings = await db
+            .query.bookingsTable.findMany({
+                where: (bookingsTable, {eq, and, lte, gte}) => and(
+                    eq(bookingsTable.carId, parseInt(req.params.id)),
+                    lte(bookingsTable.startDate, endDateObj),
+                    gte(bookingsTable.endDate, startDateObj)
+                ),
+                with: {
+                    car: true,
+                    pickupParking: true,
+                    dropoffParking: true,
+                    user: true
+                }
+            })
+            
+        
+        res.status(200).json(new ApiResponse(200, bookings, "Bookings fetched successfully"));
     } catch (error) {
         console.log(error);
         res.status(500).json(new ApiResponse(500, null, "Internal server error"));
