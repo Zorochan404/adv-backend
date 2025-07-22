@@ -278,6 +278,7 @@ export const getNearestPopularCars = asyncHandler(async (req: Request, res: Resp
 });
 
 
+
 export const getCarById = asyncHandler(async (req: Request, res: Response) => {
     try {
         // First, let's try without relations to see if the basic query works
@@ -293,6 +294,15 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
         if (error instanceof ApiError) {
             throw error;
         }
+        throw new ApiError(500, "Failed to fetch car");
+    }
+});
+
+export const getCarByParkingId = asyncHandler(async (req: Request, res: Response) => {
+    try {
+        const car = await db.select().from(carModel).where(eq(carModel.parkingid, parseInt(req.params.id)));
+        return res.status(200).json(new ApiResponse(200, car, "Car fetched successfully"));
+    } catch (error) {
         throw new ApiError(500, "Failed to fetch car");
     }
 });
