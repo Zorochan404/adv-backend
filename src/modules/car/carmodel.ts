@@ -28,9 +28,10 @@ export const carModel = pgTable("car", {
     images: jsonb("images"),
     mainimg: varchar("mainimg", { length: 255 }).notNull(),
     vendorid: integer("vendorid").notNull().references(() => UserTable.id, { onDelete: "cascade" }),
-    parkingid: integer("parkingid").references(() => parkingTable.id, { onDelete: "cascade" }),
+    parkingid: integer("parkingid").references(() => parkingTable.id),
     isapproved: boolean("isapproved").notNull().default(false),
     ispopular: boolean("ispopular").notNull().default(false),
+    insurancePrice: integer("insuranceprice").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 })

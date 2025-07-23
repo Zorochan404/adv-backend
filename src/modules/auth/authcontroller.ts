@@ -122,7 +122,7 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
     const { number, password } = req.body;
     
     if (!number || !password) {
-        throw new ApiError(400, "Number and password are required");
+        return res.status(400).json(new ApiResponse(400, null, "Number and password are required"));
     }
     
     let existingUsers;
@@ -130,30 +130,30 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
         existingUsers = await db.select().from(UserTable).where(eq(UserTable.number, number));
     } catch (dbError) {
         console.error('Database error:', dbError);
-        throw new ApiError(500, "Database operation failed");
+        return res.status(500).json(new ApiResponse(500, null, "Database operation failed"));
     }
     
     if (existingUsers.length === 0) {
-        throw new ApiError(401, "Invalid pnone number");
+        return res.status(401).json(new ApiResponse(401, null, "Invalid pnone number"));
     }
     
     const user = existingUsers[0];
     
     // Check if user has a password
     if (!user.password) {
-        throw new ApiError(401, "Please pass a password");
+        return res.status(401).json(new ApiResponse(401, null, "Please pass a password"));
     }
     
     // Verify password using bcrypt
     const isPasswordValid = await bcrypt.compare(password, user.password);
     
     if (!isPasswordValid) {
-        throw new ApiError(401, "Invalid password");
+        return res.status(401).json(new ApiResponse(401, null, "Invalid password"));
     }
 
     // Generate JWT token
     if (!process.env.ACCESS_TOKEN_SECRET) {
-        throw new ApiError(500, "Server misconfiguration: missing ACCESS_TOKEN_SECRET");
+        return res.status(500).json(new ApiResponse(500, null, "Server misconfiguration: missing ACCESS_TOKEN_SECRET"));
     }
     
     const accessToken = jwt.sign(
@@ -175,4 +175,5 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
         user: userWithoutPassword,
         accessToken
     }, "Admin login successful"));
+    
 });

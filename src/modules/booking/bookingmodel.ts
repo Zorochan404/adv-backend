@@ -1,4 +1,4 @@
-import { doublePrecision, integer, pgTable, serial, timestamp, varchar } from "drizzle-orm/pg-core";
+import { doublePrecision, integer, jsonb, pgTable, serial, timestamp, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { UserTable } from "../user/usermodel";
 import { carModel } from "../car/carmodel";
@@ -21,12 +21,16 @@ export const bookingsTable = pgTable("bookings", {
     startDate: timestamp("start_date").notNull(),
     endDate: timestamp("end_date").notNull(),
     price: doublePrecision("price"),
+    insurancePrice: doublePrecision("insurance_price").default(0),
     totalPrice: doublePrecision("total_price"),
     extensionPrice: doublePrecision("extension_price"),
     extentiontill: timestamp("extention_till"),
     extentiontime: integer("extention_time"),
     status: varchar("status", { length: 50 }).default("pending"),
-
+    tool: varchar("tool", { length: 500 }),
+    tripStartingCarImages: jsonb("trip_starting_car_images"),
+    paymentStatus: varchar("payment_status", { length: 50 }).default("pending"),
+    paymentReferenceId: varchar("payment_reference_id", { length: 50 }),
     pickupParkingId: integer("pickup_parking_id")
       .references(() => parkingTable.id, { onDelete: "cascade" }),
     dropoffParkingId: integer("dropoff_parking_id")

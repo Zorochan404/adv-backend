@@ -30,14 +30,33 @@ export const createBooking = asyncHandler (async (req: AuthenticatedRequest, res
     const endDate = new Date(req.body.endDate);
     const extentiontill = req.body.extentiontill ? new Date(req.body.extentiontill) : null;
     
+    // Check for overlapping bookings for the same car
+    const overlappingBookings = await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq, and, lte, gte }) => and(
+            eq(bookingsTable.carId, req.body.carId),
+            lte(bookingsTable.startDate, endDate),
+            gte(bookingsTable.endDate, startDate)
+        )
+    });
+
+    if (overlappingBookings.length > 0) {
+        // Return the conflicting booking dates
+        return res.status(409).json(new ApiResponse(
+            409,
+            overlappingBookings.map(b => ({ startDate: b.startDate, endDate: b.endDate })),
+            "Car is already booked for the selected dates"
+        ));
+    }
+
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     const price = carprice[0].price * days;
-    const totalPrice = price + (req.body.extensionPrice || 0);
+    const totalPrice = price + (req.body.extensionPrice || 0) + (carprice[0].insurancePrice || 0);
     
     const booking = await db.insert(bookingsTable).values({
         ...req.body,
         userId: Number(req.user.id),
         price: price,
+        insurancePrice: carprice[0].insurancePrice,
         totalPrice: totalPrice,
         startDate: startDate,
         endDate: endDate,
