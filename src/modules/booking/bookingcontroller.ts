@@ -71,7 +71,34 @@ export const createBooking = asyncHandler (async (req: AuthenticatedRequest, res
             car: true,
             pickupParking: true,
             dropoffParking: true,
-            user: true
+            user: {
+                columns: {
+                    id: true,
+                    name: true,
+                    avatar: true,
+                    age: true,
+                    number: true,
+                    email: true,
+                    aadharNumber: true,
+                    aadharimg: true,
+                    dlNumber: true,
+                    dlimg: true,
+                    passportNumber: true,
+                    passportimg: true,
+                    lat: true,
+                    lng: true,
+                    locality: true,
+                    city: true,
+                    state: true,
+                    country: true,
+                    pincode: true,
+                    role: true,
+                    isverified: true,
+                    parkingid: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            }
         }
     })
     res.status(201).json(new ApiResponse(201, bookingdetails, "Booking created successfully"));
@@ -84,7 +111,41 @@ export const createBooking = asyncHandler (async (req: AuthenticatedRequest, res
 
 export const getBookings = asyncHandler (async (req: Request, res: Response) => {
     try {
-        const booking = await db.select().from(bookingsTable);
+        const booking = await db.query.bookingsTable.findMany({
+            with: {
+                car: true,
+                pickupParking: true,
+                dropoffParking: true,
+                user: {
+                    columns: {
+                        id: true,
+                        name: true,
+                        avatar: true,
+                        age: true,
+                        number: true,
+                        email: true,
+                        aadharNumber: true,
+                        aadharimg: true,
+                        dlNumber: true,
+                        dlimg: true,
+                        passportNumber: true,
+                        passportimg: true,
+                        lat: true,
+                        lng: true,
+                        locality: true,
+                        city: true,
+                        state: true,
+                        country: true,
+                        pincode: true,
+                        role: true,
+                        isverified: true,
+                        parkingid: true,
+                        createdAt: true,
+                        updatedAt: true
+                    }
+                }
+            }
+        });
         res.status(200).json(new ApiResponse(200, booking, "Bookings fetched successfully"));
     } catch (error) {
         console.log(error);
@@ -120,7 +181,34 @@ export const getBookingByDateRange = asyncHandler (async (req: Request, res: Res
                     car: true,
                     pickupParking: true,
                     dropoffParking: true,
-                    user: true
+                    user: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            avatar: true,
+                            age: true,
+                            number: true,
+                            email: true,
+                            aadharNumber: true,
+                            aadharimg: true,
+                            dlNumber: true,
+                            dlimg: true,
+                            passportNumber: true,
+                            passportimg: true,
+                            lat: true,
+                            lng: true,
+                            locality: true,
+                            city: true,
+                            state: true,
+                            country: true,
+                            pincode: true,
+                            role: true,
+                            isverified: true,
+                            parkingid: true,
+                            createdAt: true,
+                            updatedAt: true
+                        }
+                    }
                 }
             })
             
@@ -161,7 +249,34 @@ export const getBookingByDateRangeByCarId = asyncHandler (async (req: Request, r
                     car: true,
                     pickupParking: true,
                     dropoffParking: true,
-                    user: true
+                    user: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            avatar: true,
+                            age: true,
+                            number: true,
+                            email: true,
+                            aadharNumber: true,
+                            aadharimg: true,
+                            dlNumber: true,
+                            dlimg: true,
+                            passportNumber: true,
+                            passportimg: true,
+                            lat: true,
+                            lng: true,
+                            locality: true,
+                            city: true,
+                            state: true,
+                            country: true,
+                            pincode: true,
+                            role: true,
+                            isverified: true,
+                            parkingid: true,
+                            createdAt: true,
+                            updatedAt: true
+                        }
+                    }
                 }
             })
             
@@ -185,109 +300,42 @@ export const getbookingbyid = asyncHandler (async (req: Request, res: Response) 
         const { UserTable } = await import("../user/usermodel");
         
         // Get booking with car and user details
-        const booking = await db
-            .select({
-                // Booking details
-                id: bookingsTable.id,
-                userId: bookingsTable.userId,
-                carId: bookingsTable.carId,
-                startDate: bookingsTable.startDate,
-                endDate: bookingsTable.endDate,
-                price: bookingsTable.price,
-                totalPrice: bookingsTable.totalPrice,
-                extensionPrice: bookingsTable.extensionPrice,
-                extentiontill: bookingsTable.extentiontill,
-                extentiontime: bookingsTable.extentiontime,
-                status: bookingsTable.status,
-                pickupParkingId: bookingsTable.pickupParkingId,
-                dropoffParkingId: bookingsTable.dropoffParkingId,
-                createdAt: bookingsTable.createdAt,
-                
-                // Car details
-                carName: carModel.name,
-                carMaker: carModel.maker,
-                carYear: carModel.year,
-                carNumber: carModel.carnumber,
-                carColor: carModel.color,
-                carTransmission: carModel.transmission,
-                carFuel: carModel.fuel,
-                carType: carModel.type,
-                carSeats: carModel.seats,
-                carMainImg: carModel.mainimg,
-                carImages: carModel.images,
-                carPrice: carModel.price,
-                carDiscountedPrice: carModel.discountedprice,
-                carIsAvailable: carModel.isavailable,
-                carIsApproved: carModel.isapproved,
-                
-                // User details
-                userName: UserTable.name,
-                userEmail: UserTable.email,
-                userNumber: UserTable.number
-            })
-            .from(bookingsTable)
-            .leftJoin(carModel, eq(bookingsTable.carId, carModel.id))
-            .leftJoin(UserTable, eq(bookingsTable.userId, UserTable.id))
-            .where(eq(bookingsTable.id, parseInt(id)));
-        
-        if (booking.length === 0) {
-            return res.status(404).json(new ApiResponse(404, null, "Booking not found"));
-        }
-        
-        // Get pickup parking details
-        let pickupParking = null;
-        if (booking[0].pickupParkingId) {
-            const pickupResult = await db
-                .select({
-                    id: parkingTable.id,
-                    name: parkingTable.name,
-                    locality: parkingTable.locality,
-                    city: parkingTable.city,
-                    state: parkingTable.state,
-                    country: parkingTable.country,
-                    pincode: parkingTable.pincode,
-                    capacity: parkingTable.capacity,
-                    mainimg: parkingTable.mainimg,
-                    images: parkingTable.images,
-                    lat: parkingTable.lat,
-                    lng: parkingTable.lng
-                })
-                .from(parkingTable)
-                .where(eq(parkingTable.id, booking[0].pickupParkingId));
-            
-            pickupParking = pickupResult[0] || null;
-        }
-        
-        // Get dropoff parking details
-        let dropoffParking = null;
-        if (booking[0].dropoffParkingId) {
-            const dropoffResult = await db
-                .select({
-                    id: parkingTable.id,
-                    name: parkingTable.name,
-                    locality: parkingTable.locality,
-                    city: parkingTable.city,
-                    state: parkingTable.state,
-                    country: parkingTable.country,
-                    pincode: parkingTable.pincode,
-                    capacity: parkingTable.capacity,
-                    mainimg: parkingTable.mainimg,
-                    images: parkingTable.images,
-                    lat: parkingTable.lat,
-                    lng: parkingTable.lng
-                })
-                .from(parkingTable)
-                .where(eq(parkingTable.id, booking[0].dropoffParkingId));
-            
-            dropoffParking = dropoffResult[0] || null;
-        }
-        
-        // Combine the data
-        const result = {
-            ...booking[0],
-            pickupParking,
-            dropoffParking
-        };
+        const result = await db.query.bookingsTable.findFirst({
+            where: (bookingsTable, {eq}) => eq(bookingsTable.id, parseInt(id)),
+            with: {
+                car: true,
+                pickupParking: true,
+                dropoffParking: true,
+                user: {
+                    columns: {
+                        id: true,
+                        name: true,
+                        avatar: true,
+                        age: true,
+                        number: true,
+                        email: true,
+                        aadharNumber: true,
+                        aadharimg: true,
+                        dlNumber: true,
+                        dlimg: true,
+                        passportNumber: true,
+                        passportimg: true,
+                        lat: true,
+                        lng: true,
+                        locality: true,
+                        city: true,
+                        state: true,
+                        country: true,
+                        pincode: true,
+                        role: true,
+                        isverified: true,
+                        parkingid: true,
+                        createdAt: true,
+                        updatedAt: true
+                    }
+                }
+            }
+        })
         
         res.status(200).json(new ApiResponse(200, result, "Booking with details fetched successfully"));
     } catch (error) {
@@ -298,7 +346,44 @@ export const getbookingbyid = asyncHandler (async (req: Request, res: Response) 
 
 export const updatebooking = asyncHandler (async (req: Request, res: Response) => {
     try {
-        const booking = await db.update(bookingsTable).set(req.body).where(eq(bookingsTable.id, parseInt(req.params.id)));
+        // Validate and convert date fields if present
+        const updateData: any = { ...req.body };
+
+        if (updateData.startDate) {
+            const startDate = new Date(updateData.startDate);
+            if (isNaN(startDate.getTime())) {
+                return res.status(400).json(new ApiResponse(400, null, "Invalid startDate format"));
+            }
+            updateData.startDate = startDate;
+        }
+        if (updateData.endDate) {
+            const endDate = new Date(updateData.endDate);
+            if (isNaN(endDate.getTime())) {
+                return res.status(400).json(new ApiResponse(400, null, "Invalid endDate format"));
+            }
+            updateData.endDate = endDate;
+        }
+        if (updateData.extentiontill) {
+            const extentiontill = new Date(updateData.extentiontill);
+            if (isNaN(extentiontill.getTime())) {
+                return res.status(400).json(new ApiResponse(400, null, "Invalid extentiontill format"));
+            }
+            updateData.extentiontill = extentiontill;
+        }
+
+        const booking = await db.update(bookingsTable).set(updateData).where(eq(bookingsTable.id, parseInt(req.params.id))).returning();
+        // After updating the booking
+        if (updateData.status === "active") {
+            // Fetch the booking to get the carId
+            const updatedBooking = await db.query.bookingsTable.findFirst({
+                where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(req.params.id))
+            });
+            if (updatedBooking && updatedBooking.carId) {
+                await db.update(carModel)
+                    .set({ isavailable: false })
+                    .where(eq(carModel.id, updatedBooking.carId));
+            }
+        }
         res.status(200).json(new ApiResponse(200, booking, "Booking updated successfully"));
     } catch (error) {
         console.log(error);

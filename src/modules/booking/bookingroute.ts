@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createBooking, getBookings, getbookingbypickupParkingId, getbookingbydropoffParkingId, getbookingbyid, getbookingbystatus, getbookingbyuserid, getbookingbycarid, getBookingByDateRange, getBookingByDateRangeByCarId } from "./bookingcontroller";
+import { createBooking, getBookings, getbookingbypickupParkingId, getbookingbydropoffParkingId, getbookingbyid, getbookingbystatus, getbookingbyuserid, getbookingbycarid, getBookingByDateRange, getBookingByDateRangeByCarId, updatebooking, deletebooking } from "./bookingcontroller";
 import { verifyJWT } from "../middleware/auth";
 
 const router = Router();
@@ -12,7 +12,8 @@ router.get("/bu/:id", getbookingbyuserid);
 router.get("/bc/:id", getbookingbycarid);
 router.post("/bd", getBookingByDateRange);
 router.post("/bcd/:id", getBookingByDateRangeByCarId);
-
+router.put("/b/:id", updatebooking);
+router.delete("/b/:id", deletebooking);
 
 //admin
 router.get("/ppi/:id", verifyJWT, getbookingbypickupParkingId);
