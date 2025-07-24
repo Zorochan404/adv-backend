@@ -384,6 +384,16 @@ export const updatebooking = asyncHandler (async (req: Request, res: Response) =
                     .where(eq(carModel.id, updatedBooking.carId));
             }
         }
+        if (updateData.status === "completed") {
+            const updatedBooking = await db.query.bookingsTable.findFirst({
+                where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(req.params.id))
+            });
+            if (updatedBooking && updatedBooking.carId) {
+                await db.update(carModel)
+                    .set({ isavailable: true })
+                    .where(eq(carModel.id, updatedBooking.carId));
+            }
+        }
         res.status(200).json(new ApiResponse(200, booking, "Booking updated successfully"));
     } catch (error) {
         console.log(error);
