@@ -384,7 +384,7 @@ export const updatebooking = asyncHandler (async (req: Request, res: Response) =
                     .where(eq(carModel.id, updatedBooking.carId));
             }
         }
-        if (updateData.status === "completed") {
+        if (updateData.status === "completed" || updateData.status === "cancelled") {
             const updatedBooking = await db.query.bookingsTable.findFirst({
                 where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(req.params.id))
             });
