@@ -49,7 +49,7 @@ export const createBooking = asyncHandler (async (req: AuthenticatedRequest, res
     }
 
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    const price = carprice[0].price * days;
+    const price = carprice[0].discountedprice * days;
     const totalPrice = price + (req.body.extensionPrice || 0) + (carprice[0].insurancePrice || 0);
     
     const booking = await db.insert(bookingsTable).values({
