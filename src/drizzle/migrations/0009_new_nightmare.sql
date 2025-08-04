@@ -1,1 +1,0 @@
-ALTER TABLE "car" ALTER COLUMN "parkingid" DROP NOT NULL;

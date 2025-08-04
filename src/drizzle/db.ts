@@ -1,22 +1,31 @@
-import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
-import { Pool } from 'pg';
-import dotenv from 'dotenv';
-import { carModel, carRelations } from '../modules/car/carmodel';
-import { reviewModel, reviewRelations } from '../modules/review/reviewmodel';
-import { UserTable, vendorRelations } from '../modules/user/usermodel';
-import { parkingTable, parkingRelations } from '../modules/parking/parkingmodel';
-import { bookingsTable, bookingRelations } from '../modules/booking/bookingmodel';
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import { Pool } from "pg";
+import dotenv from "dotenv";
+import { carModel, carRelations } from "../modules/car/carmodel";
+import { reviewModel, reviewRelations } from "../modules/review/reviewmodel";
+import { UserTable, vendorRelations } from "../modules/user/usermodel";
+import {
+  parkingTable,
+  parkingRelations,
+} from "../modules/parking/parkingmodel";
+import {
+  bookingsTable,
+  bookingRelations,
+} from "../modules/booking/bookingmodel";
+import {
+  advertisementTable,
+  advertisementRelations,
+} from "../modules/advertisement/advertisementmodel";
 dotenv.config();
 
 // For Drizzle Studio and migrations
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
-  }
+    rejectUnauthorized: false,
+  },
 });
-
 
 const schema = {
   carModel,
@@ -24,12 +33,14 @@ const schema = {
   UserTable,
   parkingTable,
   bookingsTable,
+  advertisementTable,
   // Include all relations
   carRelations,
   reviewRelations,
   vendorRelations,
   parkingRelations,
   bookingRelations,
+  advertisementRelations,
 };
 
 // For serverless operations

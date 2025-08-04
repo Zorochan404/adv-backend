@@ -1,5 +1,18 @@
 import { Router } from "express";
-import { getUser, updateUser, deleteUser, searchUser, getAllUsers, getUserbyrole, addParkingIncharge, getusersbyvendor, addvendor, getParkingInchargeByNumber, assignParkingIncharge, getParkingInchargeByParkingId } from "./usercontroller";
+import {
+  getUser,
+  updateUser,
+  deleteUser,
+  searchUser,
+  getAllUsers,
+  getUserbyrole,
+  addParkingIncharge,
+  getusersbyvendor,
+  addvendor,
+  getParkingInchargeByNumber,
+  assignParkingIncharge,
+  getParkingInchargeByParkingId,
+} from "./usercontroller";
 import { verifyJWT } from "../middleware/auth";
 
 const router = Router();
@@ -12,9 +25,19 @@ router.post("/searchuser", searchUser);
 router.post("/getuserbyrole", getUserbyrole);
 router.post("/addparkingincharge", verifyJWT, addParkingIncharge);
 router.get("/getusersbyvendor", verifyJWT, getusersbyvendor);
-router.post("/addvendor", verifyJWT, addvendor);
-router.post("/getparkinginchargebynumber", verifyJWT, getParkingInchargeByNumber);
+
+//who is adding the vendor why jwt?
+router.post("/addvendor", addvendor);
+router.post(
+  "/getparkinginchargebynumber",
+  verifyJWT,
+  getParkingInchargeByNumber
+);
 router.post("/assignparkingincharge", verifyJWT, assignParkingIncharge);
-router.get("/getparkinginchargebyparkingid/:parkingid", verifyJWT, getParkingInchargeByParkingId);
+router.get(
+  "/getparkinginchargebyparkingid/:parkingid",
+  verifyJWT,
+  getParkingInchargeByParkingId
+);
 
 export default router;

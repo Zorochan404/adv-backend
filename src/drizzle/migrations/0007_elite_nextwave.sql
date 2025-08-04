@@ -1,1 +1,0 @@
-ALTER TABLE "car" ADD COLUMN "carnumber" varchar(255) NOT NULL;

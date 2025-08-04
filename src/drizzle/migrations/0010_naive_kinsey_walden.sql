@@ -1,1 +1,0 @@
-ALTER TABLE "car" ALTER COLUMN "images" DROP NOT NULL;

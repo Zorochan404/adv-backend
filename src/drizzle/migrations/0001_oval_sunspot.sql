@@ -1,1 +1,0 @@
-ALTER TABLE "users" ALTER COLUMN "number" SET DATA TYPE bigint;

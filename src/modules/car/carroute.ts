@@ -1,5 +1,20 @@
 import { Router } from "express";
-import { createCar, getCar, getCarById, getCarByIdforadmin, updateCar, deletecar, getCarByAvailable, getCarByType, searchbynameornumber, getCarByApproved, getNearestCars, getNearestAvailableCars, getNearestPopularCars, getCarByParkingId } from "./carcontroller";
+import {
+  createCar,
+  getCar,
+  getCarById,
+  getCarByIdforadmin,
+  updateCar,
+  deletecar,
+  getCarByAvailable,
+  getCarByType,
+  searchbynameornumber,
+  getCarByApproved,
+  getNearestCars,
+  getNearestAvailableCars,
+  getNearestPopularCars,
+  getCarByParkingId,
+} from "./carcontroller";
 import { verifyJWT } from "../middleware/auth";
 
 const carRouter = Router();
@@ -15,10 +30,12 @@ carRouter.get("/nearestpopularcars", getNearestPopularCars);
 carRouter.get("/carbyparking/:id", getCarByParkingId);
 
 //admin purpose
-carRouter.get("/admin/:id",verifyJWT, getCarByIdforadmin);
-carRouter.post("/add",verifyJWT, createCar);
-carRouter.put("/update/:id",verifyJWT, updateCar);
-carRouter.delete("/delete/:id",verifyJWT, deletecar);
-carRouter.get("/approved",verifyJWT, getCarByApproved);
+carRouter.get("/admin/:id", verifyJWT, getCarByIdforadmin);
 
-export default carRouter
+//why jwt? not required. Already isAppproved false by default.
+carRouter.post("/add", verifyJWT, createCar);
+carRouter.put("/update/:id", verifyJWT, updateCar);
+carRouter.delete("/delete/:id", verifyJWT, deletecar);
+carRouter.get("/approved", verifyJWT, getCarByApproved);
+
+export default carRouter;
