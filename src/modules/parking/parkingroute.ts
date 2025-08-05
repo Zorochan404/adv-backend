@@ -1,19 +1,29 @@
 import { Router } from "express";
-import { createParking, deleteParking, getNearByParking, getParking, getParkingByFilter, getParkingById, getParkingByIDadmin, updateParking } from "./parkingcontroller";
-import { verifyJWT } from "../middleware/auth";
+import {
+  createParking,
+  getParking,
+  getParkingById,
+  getParkingByIDadmin,
+  updateParking,
+  deleteParking,
+} from "./parkingcontroller";
+import { verifyJWT, requireAdmin } from "../middleware/auth";
 
-const parkingRouter = Router();
+const parkingRouter: Router = Router();
 
-//user
+// Public routes (no authentication required)
 parkingRouter.get("/get", getParking);
-parkingRouter.get("/getnearby", getNearByParking);
-parkingRouter.get("/getbyfilter", getParkingByFilter);
 parkingRouter.get("/getbyid/:id", getParkingById);
 
-//admin
-parkingRouter.post("/add", verifyJWT, createParking);
-parkingRouter.get("/getbyidadmin/:id", verifyJWT, getParkingByIDadmin);
-parkingRouter.put("/update/:id", verifyJWT, updateParking);
-parkingRouter.delete("/delete/:id", verifyJWT, deleteParking);
+// Admin-only routes (for parking management)
+parkingRouter.post("/add", verifyJWT, requireAdmin, createParking);
+parkingRouter.get(
+  "/getbyidadmin/:id",
+  verifyJWT,
+  requireAdmin,
+  getParkingByIDadmin
+);
+parkingRouter.put("/update/:id", verifyJWT, requireAdmin, updateParking);
+parkingRouter.delete("/delete/:id", verifyJWT, requireAdmin, deleteParking);
 
 export default parkingRouter;

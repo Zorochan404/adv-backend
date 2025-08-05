@@ -10,21 +10,41 @@ import {
   incrementClickCount,
   getAdvertisementStats,
 } from "./advertisementcontroller";
-import { verifyJWT } from "../middleware/auth";
+import { verifyJWT, requireAdmin } from "../middleware/auth";
 
 const advertisementRouter: Router = Router();
 
 // Public routes (no authentication required)
 advertisementRouter.get("/active", getActiveAdvertisements);
 advertisementRouter.get("/:id", getAdvertisementById);
-advertisementRouter.post("/:id/view", incrementViewCount);
-advertisementRouter.post("/:id/click", incrementClickCount);
+advertisementRouter.post("/view/:id", incrementViewCount);
+advertisementRouter.post("/click/:id", incrementClickCount);
 
-// Protected routes (require authentication)
-advertisementRouter.post("/create", verifyJWT, createAdvertisement);
-advertisementRouter.get("/admin/all", verifyJWT, getAllAdvertisements);
-advertisementRouter.put("/:id", verifyJWT, updateAdvertisement);
-advertisementRouter.delete("/:id", verifyJWT, deleteAdvertisement);
-advertisementRouter.get("/admin/stats", verifyJWT, getAdvertisementStats);
+// Admin-only routes
+advertisementRouter.post(
+  "/create",
+  verifyJWT,
+  requireAdmin,
+  createAdvertisement
+);
+advertisementRouter.get(
+  "/admin/all",
+  verifyJWT,
+  requireAdmin,
+  getAllAdvertisements
+);
+advertisementRouter.put("/:id", verifyJWT, requireAdmin, updateAdvertisement);
+advertisementRouter.delete(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  deleteAdvertisement
+);
+advertisementRouter.get(
+  "/admin/stats",
+  verifyJWT,
+  requireAdmin,
+  getAdvertisementStats
+);
 
 export default advertisementRouter;

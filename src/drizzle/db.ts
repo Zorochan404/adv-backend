@@ -22,6 +22,17 @@ import {
   advertisementTable,
   advertisementRelations,
 } from "../modules/advertisement/advertisementmodel";
+import {
+  topupTable,
+  topupRelations,
+  bookingTopupTable,
+  bookingTopupRelations,
+} from "../modules/booking/topupmodel";
+import {
+  picVerificationTable,
+  picVerificationRelations,
+} from "../modules/parking/picmodel";
+
 dotenv.config();
 
 // For Drizzle Studio and migrations
@@ -40,6 +51,9 @@ const schema = {
   parkingTable,
   bookingsTable,
   advertisementTable,
+  topupTable,
+  bookingTopupTable,
+  picVerificationTable,
   // Include all relations
   carRelations,
   carCatalogRelations,
@@ -48,6 +62,9 @@ const schema = {
   parkingRelations,
   bookingRelations,
   advertisementRelations,
+  topupRelations,
+  bookingTopupRelations,
+  picVerificationRelations,
 };
 
 // For serverless operations

@@ -8,7 +8,7 @@ import {
   getActiveCarCatalog,
   seedCarCatalog,
 } from "./carcatalogcontroller";
-import { verifyJWT } from "../middleware/auth";
+import { verifyJWT, requireAdmin } from "../middleware/auth";
 
 const carCatalogRouter: Router = Router();
 
@@ -16,11 +16,11 @@ const carCatalogRouter: Router = Router();
 carCatalogRouter.get("/active", getActiveCarCatalog);
 carCatalogRouter.get("/:id", getCarCatalogById);
 
-// Protected routes (require authentication)
-carCatalogRouter.post("/create", verifyJWT, createCarCatalog);
-carCatalogRouter.get("/admin/all", verifyJWT, getAllCarCatalog);
-carCatalogRouter.put("/:id", verifyJWT, updateCarCatalog);
-carCatalogRouter.delete("/:id", verifyJWT, deleteCarCatalog);
-carCatalogRouter.post("/seed", verifyJWT, seedCarCatalog);
+// Admin-only routes
+carCatalogRouter.post("/create", verifyJWT, requireAdmin, createCarCatalog);
+carCatalogRouter.get("/admin/all", verifyJWT, requireAdmin, getAllCarCatalog);
+carCatalogRouter.put("/:id", verifyJWT, requireAdmin, updateCarCatalog);
+carCatalogRouter.delete("/:id", verifyJWT, requireAdmin, deleteCarCatalog);
+carCatalogRouter.post("/seed", verifyJWT, requireAdmin, seedCarCatalog);
 
 export default carCatalogRouter;

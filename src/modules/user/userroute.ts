@@ -13,31 +13,46 @@ import {
   assignParkingIncharge,
   getParkingInchargeByParkingId,
 } from "./usercontroller";
-import { verifyJWT } from "../middleware/auth";
+import {
+  verifyJWT,
+  requireAdmin,
+  requireVendorOrAdmin,
+  requireOwnerOrAdmin,
+} from "../middleware/auth";
 
-const router = Router();
+const router: Router = Router();
 
+// Public routes (no authentication required)
 router.get("/getuser/:id", getUser);
 router.get("/getallusers", getAllUsers);
-router.put("/updateuser/:id", updateUser);
-router.delete("/deleteuser/:id", deleteUser);
 router.post("/searchuser", searchUser);
 router.post("/getuserbyrole", getUserbyrole);
-router.post("/addparkingincharge", verifyJWT, addParkingIncharge);
-router.get("/getusersbyvendor", verifyJWT, getusersbyvendor);
 
-//who is adding the vendor why jwt?
-router.post("/addvendor", addvendor);
+// Admin-only routes (for user management)
+router.post("/addparkingincharge", verifyJWT, requireAdmin, addParkingIncharge);
+router.get("/getusersbyvendor", verifyJWT, requireAdmin, getusersbyvendor);
+router.post("/addvendor", verifyJWT, requireAdmin, addvendor);
 router.post(
   "/getparkinginchargebynumber",
   verifyJWT,
+  requireAdmin,
   getParkingInchargeByNumber
 );
-router.post("/assignparkingincharge", verifyJWT, assignParkingIncharge);
+router.post(
+  "/assignparkingincharge",
+  verifyJWT,
+  requireAdmin,
+  assignParkingIncharge
+);
 router.get(
   "/getparkinginchargebyparkingid/:parkingid",
   verifyJWT,
+  requireAdmin,
   getParkingInchargeByParkingId
 );
+
+// Owner or Admin routes (for updating/deleting users)
+router.put("/updateuser/:id", verifyJWT, requireOwnerOrAdmin, updateUser);
+router.delete("/deleteuser/:id", verifyJWT, requireOwnerOrAdmin, deleteUser);
 
 export default router;

@@ -105,7 +105,30 @@ export const loginuser = asyncHandler(async (req: Request, res: Response) => {
 export const registerAdmin = asyncHandler(
   async (req: Request, res: Response) => {
     console.log(req.body);
-    const { number, password, role } = req.body;
+    const {
+      number,
+      password,
+      role,
+      name,
+      email,
+      parkingid,
+      locality,
+      city,
+      state,
+      country,
+      pincode,
+      isverified,
+      avatar,
+      age,
+      aadharNumber,
+      aadharimg,
+      dlNumber,
+      dlimg,
+      passportNumber,
+      passportimg,
+      lat,
+      lng,
+    } = req.body;
 
     // Validate required fields
     if (!number || !password || !role) {
@@ -124,7 +147,7 @@ export const registerAdmin = asyncHandler(
     }
 
     if (existingUsers.length > 0) {
-      throw new ApiError(400, "Admin already exists");
+      throw new ApiError(400, "User with this number and role already exists");
     }
 
     // Hash the password
@@ -141,6 +164,25 @@ export const registerAdmin = asyncHandler(
           number: number,
           password: hashedPassword,
           role: role,
+          name: name || null,
+          email: email || null,
+          parkingid: parkingid || null,
+          locality: locality || null,
+          city: city || null,
+          state: state || null,
+          country: country || null,
+          pincode: pincode || null,
+          isverified: isverified || false,
+          avatar: avatar || null,
+          age: age || null,
+          aadharNumber: aadharNumber || null,
+          aadharimg: aadharimg || null,
+          dlNumber: dlNumber || null,
+          dlimg: dlimg || null,
+          passportNumber: passportNumber || null,
+          passportimg: passportimg || null,
+          lat: lat || null,
+          lng: lng || null,
         })
         .returning();
     } catch (dbError) {
@@ -150,7 +192,7 @@ export const registerAdmin = asyncHandler(
 
     return res
       .status(201)
-      .json(new ApiResponse(201, newUser[0], "Admin created successfully"));
+      .json(new ApiResponse(201, newUser[0], "User created successfully"));
   }
 );
 

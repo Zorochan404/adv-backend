@@ -6,32 +6,31 @@ import {
   getCarByIdforadmin,
   updateCar,
   deletecar,
-  getCarByAvailable,
-  searchbynameornumber,
-  getNearestCars,
-  getNearestAvailableCars,
   getNearestPopularCars,
+  getNearestAvailableCars,
   getCarByParkingId,
 } from "./carcontroller";
-import { verifyJWT } from "../middleware/auth";
+import {
+  verifyJWT,
+  requireVendorOrAdmin,
+  requireAdmin,
+} from "../middleware/auth";
 
 const carRouter: Router = Router();
 
-carRouter.get("/getcar", getCar);
+// Public routes (no authentication required)
+carRouter.get("/get", getCar);
 carRouter.get("/getcar/:id", getCarById);
-carRouter.get("/available", getCarByAvailable);
-carRouter.get("/search", searchbynameornumber);
-carRouter.get("/nearestcars", getNearestCars);
-carRouter.get("/nearestavailablecars", getNearestAvailableCars);
 carRouter.get("/nearestpopularcars", getNearestPopularCars);
+carRouter.get("/nearestavailablecars", getNearestAvailableCars);
 carRouter.get("/carbyparking/:id", getCarByParkingId);
 
-//admin purpose
-carRouter.get("/admin/:id", verifyJWT, getCarByIdforadmin);
+// Admin-only routes (for car management)
+carRouter.get("/admin/:id", verifyJWT, requireAdmin, getCarByIdforadmin);
 
-//why jwt? not required. Already isAppproved false by default.
-carRouter.post("/add", verifyJWT, createCar);
-carRouter.put("/update/:id", verifyJWT, updateCar);
-carRouter.delete("/delete/:id", verifyJWT, deletecar);
+// Vendor or Admin routes (for car management)
+carRouter.post("/add", verifyJWT, requireVendorOrAdmin, createCar);
+carRouter.put("/update/:id", verifyJWT, requireVendorOrAdmin, updateCar);
+carRouter.delete("/delete/:id", verifyJWT, requireVendorOrAdmin, deletecar);
 
 export default carRouter;

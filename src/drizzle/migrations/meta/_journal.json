@@ -15,6 +15,13 @@
       "when": 1754400867225,
       "tag": "0001_tough_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1754421885791,
+      "tag": "0002_dusty_pixie",
+      "breakpoints": true
     }
   ]
 }

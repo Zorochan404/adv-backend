@@ -9,6 +9,7 @@ import reviewRouter from "./modules/review/reviewroutes";
 import bookingRouter from "./modules/booking/bookingroute";
 import advertisementRouter from "./modules/advertisement/advertisementroutes";
 import carCatalogRouter from "./modules/car/carcatalogroutes";
+import topupRouter from "./modules/booking/topuproutes";
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use("/api/v1/review", reviewRouter);
 app.use("/api/v1/booking", bookingRouter);
 app.use("/api/v1/advertisements", advertisementRouter);
 app.use("/api/v1/car-catalog", carCatalogRouter);
+app.use("/api/v1/topups", topupRouter);
 
 const PORT = process.env.PORT || 5500;
 
