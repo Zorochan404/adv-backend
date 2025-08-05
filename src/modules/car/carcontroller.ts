@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { carModel } from "./carmodel";
+import { carModel, carCatalogTable } from "./carmodel";
 import { db } from "../../drizzle/db";
 import { ApiError } from "../utils/apiError";
 import { ApiResponse } from "../utils/apiResponse";
@@ -13,7 +13,9 @@ export const testCarConnection = asyncHandler(
   async (req: Request, res: Response) => {
     try {
       // Simple count query to test connection
-      const result = await db.select({ count: sql`count(*)` }).from(carModel);
+      const result = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(carModel);
       return res
         .status(200)
         .json(
@@ -56,27 +58,20 @@ export const getNearestCars = asyncHandler(
         .select({
           id: carModel.id,
           name: carModel.name,
-          maker: carModel.maker,
-          year: carModel.year,
-          carnumber: carModel.carnumber,
+          number: carModel.number,
           price: carModel.price,
-          discountedprice: carModel.discountedprice,
+          discountprice: carModel.discountprice,
           color: carModel.color,
-          transmission: carModel.transmission,
-          fuel: carModel.fuel,
-          type: carModel.type,
-          seats: carModel.seats,
+          inmaintainance: carModel.inmaintainance,
+          isavailable: carModel.isavailable,
           rcnumber: carModel.rcnumber,
           rcimg: carModel.rcimg,
           pollutionimg: carModel.pollutionimg,
           insuranceimg: carModel.insuranceimg,
-          inmaintainance: carModel.inmaintainance,
-          isavailable: carModel.isavailable,
           images: carModel.images,
-          mainimg: carModel.mainimg,
           vendorid: carModel.vendorid,
           parkingid: carModel.parkingid,
-          isapproved: carModel.isapproved,
+          status: carModel.status,
           createdAt: carModel.createdAt,
           updatedAt: carModel.updatedAt,
           parkingDistance: sql<number>`
@@ -182,13 +177,11 @@ export const getNearestAvailableCars = asyncHandler(
         .select({
           id: carModel.id,
           name: carModel.name,
-          carnumber: carModel.carnumber,
+          number: carModel.number,
           price: carModel.price,
-          discountedprice: carModel.discountedprice,
-          transmission: carModel.transmission,
-          fuel: carModel.fuel,
-          seats: carModel.seats,
-          mainimg: carModel.mainimg,
+          discountprice: carModel.discountprice,
+          images: carModel.images,
+          catalogId: carModel.catalogId,
           parkingDistance: sql<number>`
             (6371 * acos(
                 cos(radians(${lat})) * 
@@ -222,7 +215,7 @@ export const getNearestAvailableCars = asyncHandler(
         .limit(limitNum)
         .offset(offset);
 
-      // Get ratings for each car
+      // Get ratings and catalog info for each car
       const carsWithRatings = await Promise.all(
         cars.map(async (car) => {
           const reviews = await db
@@ -246,17 +239,40 @@ export const getNearestAvailableCars = asyncHandler(
                 ) / 10
               : 0;
 
+          // Get catalog info if available
+          let transmission = "Unknown";
+          let fuel = "Unknown";
+          let seats = 5;
+
+          if (car.catalogId) {
+            const catalog = await db
+              .select({
+                transmission: carCatalogTable.transmission,
+                fuelType: carCatalogTable.fuelType,
+                seats: carCatalogTable.seats,
+              })
+              .from(carCatalogTable)
+              .where(eq(carCatalogTable.id, car.catalogId))
+              .limit(1);
+
+            if (catalog.length > 0) {
+              transmission = catalog[0].transmission;
+              fuel = catalog[0].fuelType;
+              seats = catalog[0].seats;
+            }
+          }
+
           return {
             carId: car.id,
-            carImageUrl: car.mainimg,
+            carImageUrl: car.images?.[0] || null, // Use first image as main image
             carName: car.name,
             originalPrice: car.price,
-            discountPrice: car.discountedprice,
-            transmission: car.transmission,
-            fuel: car.fuel,
-            seats: car.seats,
+            discountPrice: car.discountprice || 0,
+            transmission: transmission,
+            fuel: fuel,
+            seats: seats,
             rating: rating,
-            carNumber: car.carnumber,
+            carNumber: car.number,
             parkingDistance: Math.round(car.parkingDistance * 10) / 10, // Round to 1 decimal place
           };
         })
@@ -351,7 +367,7 @@ export const getNearestPopularCars = asyncHandler(
                     sin(radians(${parkingTable.lat}))
                 )) <= ${radius}
             `,
-            eq(carModel.ispopular, true)
+            eq(carModel.status, "available")
           )
         );
 
@@ -362,13 +378,11 @@ export const getNearestPopularCars = asyncHandler(
         .select({
           id: carModel.id,
           name: carModel.name,
-          carnumber: carModel.carnumber,
+          number: carModel.number,
           price: carModel.price,
-          discountedprice: carModel.discountedprice,
-          transmission: carModel.transmission,
-          fuel: carModel.fuel,
-          seats: carModel.seats,
-          mainimg: carModel.mainimg,
+          discountprice: carModel.discountprice,
+          images: carModel.images,
+          catalogId: carModel.catalogId,
           parkingDistance: sql<number>`
             (6371 * acos(
                 cos(radians(${lat})) * 
@@ -395,14 +409,14 @@ export const getNearestPopularCars = asyncHandler(
                     sin(radians(${parkingTable.lat}))
                 )) <= ${radius}
             `,
-            eq(carModel.ispopular, true)
+            eq(carModel.status, "available")
           )
         )
         .orderBy(sql`parking_distance`)
         .limit(limitNum)
         .offset(offset);
 
-      // Get ratings for each car
+      // Get ratings and catalog info for each car
       const carsWithRatings = await Promise.all(
         cars.map(async (car) => {
           const reviews = await db
@@ -426,17 +440,40 @@ export const getNearestPopularCars = asyncHandler(
                 ) / 10
               : 0;
 
+          // Get catalog info if available
+          let transmission = "Unknown";
+          let fuel = "Unknown";
+          let seats = 5;
+
+          if (car.catalogId) {
+            const catalog = await db
+              .select({
+                transmission: carCatalogTable.transmission,
+                fuelType: carCatalogTable.fuelType,
+                seats: carCatalogTable.seats,
+              })
+              .from(carCatalogTable)
+              .where(eq(carCatalogTable.id, car.catalogId))
+              .limit(1);
+
+            if (catalog.length > 0) {
+              transmission = catalog[0].transmission;
+              fuel = catalog[0].fuelType;
+              seats = catalog[0].seats;
+            }
+          }
+
           return {
             carId: car.id,
-            carImageUrl: car.mainimg,
+            carImageUrl: car.images?.[0] || null, // Use first image as main image
             carName: car.name,
             originalPrice: car.price,
-            discountPrice: car.discountedprice,
-            transmission: car.transmission,
-            fuel: car.fuel,
-            seats: car.seats,
+            discountPrice: car.discountprice || 0,
+            transmission: transmission,
+            fuel: fuel,
+            seats: seats,
             rating: rating,
-            carNumber: car.carnumber,
+            carNumber: car.number,
             parkingDistance: Math.round(car.parkingDistance * 10) / 10, // Round to 1 decimal place
           };
         })
@@ -496,7 +533,7 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Get car with parking details
+    // Get car with parking details and catalog info
     const car = await db.query.carModel.findFirst({
       where: eq(carModel.id, parseInt(id)),
       with: {
@@ -506,6 +543,20 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
             name: true,
             lat: true,
             lng: true,
+          },
+        },
+        catalog: {
+          columns: {
+            carName: true,
+            carMaker: true,
+            carModelYear: true,
+            transmission: true,
+            fuelType: true,
+            seats: true,
+            engineCapacity: true,
+            mileage: true,
+            features: true,
+            imageUrl: true,
           },
         },
       },
@@ -549,16 +600,16 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
       orderBy: (reviewModel, { desc }) => desc(reviewModel.createdAt),
     });
 
-    // Format the response with only required fields
+    // Format the response with catalog info
     const response = {
       carId: car.id,
-      carName: car.name,
+      carName: car.catalog?.carName || car.name,
       parkingName: car.parking?.name || "Unknown Parking",
       overallRating: Math.round(overallRating * 10) / 10, // Round to 1 decimal place
       totalReviews: totalReviews,
-      fuel: car.fuel,
-      transmission: car.transmission,
-      seats: car.seats,
+      fuel: car.catalog?.fuelType || "Unknown",
+      transmission: car.catalog?.transmission || "Unknown",
+      seats: car.catalog?.seats || 5,
       lat: car.parking?.lat || null,
       lng: car.parking?.lng || null,
       customerReviews: threeReviews.map((review) => ({
@@ -567,9 +618,15 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
         rating: review.rating,
       })),
       pricingPerDay: car.price,
-      offeredPrice: car.discountedprice,
-      imageUrl: car.mainimg,
-      carNumber: car.carnumber,
+      offeredPrice: car.discountprice || car.price,
+      imageUrl: car.catalog?.imageUrl || car.images?.[0] || null,
+      carNumber: car.number,
+      // Additional catalog info
+      maker: car.catalog?.carMaker,
+      year: car.catalog?.carModelYear,
+      engineCapacity: car.catalog?.engineCapacity,
+      mileage: car.catalog?.mileage,
+      features: car.catalog?.features,
     };
 
     return res
@@ -608,20 +665,18 @@ export const getCarByParkingId = asyncHandler(
         .select({
           id: carModel.id,
           name: carModel.name,
-          carnumber: carModel.carnumber,
+          number: carModel.number,
           price: carModel.price,
-          discountedprice: carModel.discountedprice,
-          transmission: carModel.transmission,
-          fuel: carModel.fuel,
-          seats: carModel.seats,
-          mainimg: carModel.mainimg,
+          discountprice: carModel.discountprice,
+          images: carModel.images,
+          catalogId: carModel.catalogId,
         })
         .from(carModel)
         .where(eq(carModel.parkingid, parseInt(id)))
         .limit(limitNum)
         .offset(offset);
 
-      // Get ratings for each car
+      // Get ratings and catalog info for each car
       const carsWithRatings = await Promise.all(
         cars.map(async (car) => {
           const reviews = await db
@@ -645,17 +700,40 @@ export const getCarByParkingId = asyncHandler(
                 ) / 10
               : 0;
 
+          // Get catalog info if available
+          let transmission = "Unknown";
+          let fuel = "Unknown";
+          let seats = 5;
+
+          if (car.catalogId) {
+            const catalog = await db
+              .select({
+                transmission: carCatalogTable.transmission,
+                fuelType: carCatalogTable.fuelType,
+                seats: carCatalogTable.seats,
+              })
+              .from(carCatalogTable)
+              .where(eq(carCatalogTable.id, car.catalogId))
+              .limit(1);
+
+            if (catalog.length > 0) {
+              transmission = catalog[0].transmission;
+              fuel = catalog[0].fuelType;
+              seats = catalog[0].seats;
+            }
+          }
+
           return {
             carId: car.id,
-            carImageUrl: car.mainimg,
+            carImageUrl: car.images?.[0] || null, // Use first image as main image
             carName: car.name,
             originalPrice: car.price,
-            discountPrice: car.discountedprice,
-            transmission: car.transmission,
-            fuel: car.fuel,
-            seats: car.seats,
+            discountPrice: car.discountprice || 0,
+            transmission: transmission,
+            fuel: fuel,
+            seats: seats,
             rating: rating,
-            carNumber: car.carnumber,
+            carNumber: car.number,
           };
         })
       );
@@ -702,7 +780,6 @@ export const getCarByParkingId = asyncHandler(
 );
 
 // search purpose
-
 export const searchbynameornumber = asyncHandler(
   async (req: Request, res: Response) => {
     try {
@@ -713,7 +790,7 @@ export const searchbynameornumber = asyncHandler(
         .where(
           or(
             like(sql`lower(${carModel.name})`, `%${search}%`),
-            like(sql`lower(${carModel.carnumber})`, `%${search}%`)
+            like(sql`lower(${carModel.number})`, `%${search}%`)
           )
         );
 
@@ -746,24 +823,7 @@ export const getCarByAvailable = asyncHandler(
   }
 );
 
-export const getCarByType = asyncHandler(
-  async (req: Request, res: Response) => {
-    try {
-      const car = await db
-        .select()
-        .from(carModel)
-        .where(eq(carModel.type, req.body.type));
-      return res
-        .status(200)
-        .json(new ApiResponse(200, car, "Car fetched successfully"));
-    } catch (error) {
-      throw new ApiError(500, "Failed to fetch car");
-    }
-  }
-);
-
 // for admin purpose
-
 export const createCar = asyncHandler(
   async (req: Request & { user?: { role?: string } }, res: Response) => {
     try {
@@ -875,26 +935,6 @@ export const deletecar = asyncHandler(
       }
     } catch (error) {
       throw new ApiError(500, "Failed to delete car");
-    }
-  }
-);
-
-export const getCarByApproved = asyncHandler(
-  async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try {
-      if (req.user && req.user.role === "admin") {
-        const car = await db
-          .select()
-          .from(carModel)
-          .where(eq(carModel.isapproved, true));
-        return res
-          .status(200)
-          .json(new ApiResponse(200, car, "Car fetched successfully"));
-      } else {
-        throw new ApiError(403, "You are not authorized to fetch car");
-      }
-    } catch (error) {
-      throw new ApiError(500, "Failed to fetch car");
     }
   }
 );

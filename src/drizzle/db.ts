@@ -2,7 +2,12 @@ import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { Pool } from "pg";
 import dotenv from "dotenv";
-import { carModel, carRelations } from "../modules/car/carmodel";
+import {
+  carModel,
+  carRelations,
+  carCatalogTable,
+  carCatalogRelations,
+} from "../modules/car/carmodel";
 import { reviewModel, reviewRelations } from "../modules/review/reviewmodel";
 import { UserTable, vendorRelations } from "../modules/user/usermodel";
 import {
@@ -29,6 +34,7 @@ const pool = new Pool({
 
 const schema = {
   carModel,
+  carCatalogTable,
   reviewModel,
   UserTable,
   parkingTable,
@@ -36,6 +42,7 @@ const schema = {
   advertisementTable,
   // Include all relations
   carRelations,
+  carCatalogRelations,
   reviewRelations,
   vendorRelations,
   parkingRelations,

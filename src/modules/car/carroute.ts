@@ -7,9 +7,7 @@ import {
   updateCar,
   deletecar,
   getCarByAvailable,
-  getCarByType,
   searchbynameornumber,
-  getCarByApproved,
   getNearestCars,
   getNearestAvailableCars,
   getNearestPopularCars,
@@ -17,12 +15,11 @@ import {
 } from "./carcontroller";
 import { verifyJWT } from "../middleware/auth";
 
-const carRouter = Router();
+const carRouter: Router = Router();
 
 carRouter.get("/getcar", getCar);
 carRouter.get("/getcar/:id", getCarById);
 carRouter.get("/available", getCarByAvailable);
-carRouter.get("/type", getCarByType);
 carRouter.get("/search", searchbynameornumber);
 carRouter.get("/nearestcars", getNearestCars);
 carRouter.get("/nearestavailablecars", getNearestAvailableCars);
@@ -36,6 +33,5 @@ carRouter.get("/admin/:id", verifyJWT, getCarByIdforadmin);
 carRouter.post("/add", verifyJWT, createCar);
 carRouter.put("/update/:id", verifyJWT, updateCar);
 carRouter.delete("/delete/:id", verifyJWT, deletecar);
-carRouter.get("/approved", verifyJWT, getCarByApproved);
 
 export default carRouter;

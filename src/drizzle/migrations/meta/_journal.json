@@ -8,6 +8,13 @@
       "when": 1754343235848,
       "tag": "0000_legal_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1754400867225,
+      "tag": "0001_tough_loki",
+      "breakpoints": true
     }
   ]
 }
