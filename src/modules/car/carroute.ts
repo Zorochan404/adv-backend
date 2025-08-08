@@ -1,36 +1,95 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
-  createCar,
+  testCarConnection,
   getCar,
-  getCarById,
-  getCarByIdforadmin,
-  updateCar,
-  deletecar,
-  getNearestPopularCars,
+  getNearestCars,
   getNearestAvailableCars,
+  getNearestPopularCars,
+  getCarById,
   getCarByParkingId,
+  searchbynameornumber,
+  filterCars,
+  createCar,
+  updateCar,
+  deleteCar,
 } from "./carcontroller";
 import {
   verifyJWT,
-  requireVendorOrAdmin,
   requireAdmin,
+  requireVendor,
+  requireVendorOrAdmin,
 } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  carCreateSchema,
+  carUpdateSchema,
+  carSearchSchema,
+  carFilterSchema,
+  carLocationSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const carRouter: Router = Router();
+const router: Router = express.Router();
 
-// Public routes (no authentication required)
-carRouter.get("/get", getCar);
-carRouter.get("/getcar/:id", getCarById);
-carRouter.get("/nearestpopularcars", getNearestPopularCars);
-carRouter.get("/nearestavailablecars", getNearestAvailableCars);
-carRouter.get("/carbyparking/:id", getCarByParkingId);
+// Public routes (specific routes first)
+router.get("/test", testCarConnection);
+router.get("/nearestcars", validateRequest(carLocationSchema), getNearestCars);
+router.post("/nearestcars", validateRequest(carLocationSchema), getNearestCars);
+router.get(
+  "/nearestavailablecars",
+  validateRequest(carLocationSchema),
+  getNearestAvailableCars
+);
+router.post(
+  "/nearestavailablecars",
+  validateRequest(carLocationSchema),
+  getNearestAvailableCars
+);
+router.get(
+  "/nearestpopularcars",
+  validateRequest(carLocationSchema),
+  getNearestPopularCars
+);
+router.post(
+  "/nearestpopularcars",
+  validateRequest(carLocationSchema),
+  getNearestPopularCars
+);
+router.get("/search", validateRequest(carSearchSchema), searchbynameornumber);
+router.post("/search", validateRequest(carSearchSchema), searchbynameornumber);
+router.get("/filter", validateRequest(carFilterSchema), filterCars);
 
-// Admin-only routes (for car management)
-carRouter.get("/admin/:id", verifyJWT, requireAdmin, getCarByIdforadmin);
+// Protected routes (specific routes first)
+router.get(
+  "/getcar",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(paginationQuerySchema),
+  getCar
+);
+router.post(
+  "/add",
+  verifyJWT,
+  requireVendorOrAdmin,
+  validateRequest(carCreateSchema),
+  createCar
+);
 
-// Vendor or Admin routes (for car management)
-carRouter.post("/add", verifyJWT, requireVendorOrAdmin, createCar);
-carRouter.put("/update/:id", verifyJWT, requireVendorOrAdmin, updateCar);
-carRouter.delete("/delete/:id", verifyJWT, requireVendorOrAdmin, deletecar);
+// Parameterized routes (after specific routes)
+router.get("/getcar/:id", validateRequest(idParamSchema), getCarById);
+router.get(
+  "/carbyparking/:id",
+  validateRequest({ ...idParamSchema, ...paginationQuerySchema }),
+  getCarByParkingId
+);
+router.put("/:id", verifyJWT, requireVendorOrAdmin, updateCar);
+router.delete(
+  "/delete/:id",
+  verifyJWT,
+  requireVendorOrAdmin,
+  validateRequest(idParamSchema),
+  deleteCar
+);
 
-export default carRouter;
+export default router;

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createTopup,
   getActiveTopups,
@@ -8,21 +8,65 @@ import {
   updateTopup,
   deleteTopup,
 } from "./topupcontroller";
-import { verifyJWT, requireUser, requireAdmin } from "../middleware/auth";
+import { verifyJWT, requireAdmin, requireUser } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  topupCreateSchema,
+  topupUpdateSchema,
+  topupApplySchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const topupRouter: Router = Router();
+const router: Router = express.Router();
 
-// Public routes (no authentication required)
-topupRouter.get("/active", getActiveTopups);
-topupRouter.get("/booking/:bookingId", getBookingTopups);
+// Public routes
+router.get("/active", getActiveTopups);
 
-// User-only routes (for applying topups)
-topupRouter.post("/apply", verifyJWT, requireUser, applyTopupToBooking);
+// User routes
+router.post(
+  "/apply",
+  verifyJWT,
+  requireUser,
+  validateRequest(topupApplySchema),
+  applyTopupToBooking
+);
+router.get(
+  "/booking/:bookingId",
+  verifyJWT,
+  requireUser,
+  validateRequest(idParamSchema),
+  getBookingTopups
+);
 
-// Admin-only routes (for topup management)
-topupRouter.post("/create", verifyJWT, requireAdmin, createTopup);
-topupRouter.get("/admin/all", verifyJWT, requireAdmin, getAllTopups);
-topupRouter.put("/admin/:id", verifyJWT, requireAdmin, updateTopup);
-topupRouter.delete("/admin/:id", verifyJWT, requireAdmin, deleteTopup);
+// Admin routes
+router.get(
+  "/",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(paginationQuerySchema),
+  getAllTopups
+);
+router.post(
+  "/",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(topupCreateSchema),
+  createTopup
+);
+router.put(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...idParamSchema, ...topupUpdateSchema }),
+  updateTopup
+);
+router.delete(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(idParamSchema),
+  deleteTopup
+);
 
-export default topupRouter;
+export default router;

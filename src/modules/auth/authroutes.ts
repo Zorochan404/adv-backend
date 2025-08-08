@@ -1,9 +1,23 @@
-import { Router } from "express";
-import { loginAdmin, loginuser, registerAdmin } from "./authcontroller";
+import express, { Router } from "express";
+import { loginuser, registerAdmin, loginAdmin } from "./authcontroller";
+import { verifyJWT } from "../middleware/auth";
+import {
+  validateRequest,
+  loginSchema,
+  adminRegisterSchema,
+  adminLoginSchema,
+} from "../utils/validation";
 
-const router = Router();
+const router: Router = express.Router();
 
-router.post("/login", loginuser);
-router.post("/registerAdmin", registerAdmin);
-router.post("/loginAdmin", loginAdmin);
+// Public routes
+router.post("/login", validateRequest(loginSchema), loginuser);
+router.post(
+  "/registerAdmin",
+  verifyJWT,
+  validateRequest(adminRegisterSchema),
+  registerAdmin
+);
+router.post("/loginAdmin", validateRequest(adminLoginSchema), loginAdmin);
+
 export default router;

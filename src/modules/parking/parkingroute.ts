@@ -1,29 +1,66 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
-  createParking,
   getParking,
+  getParkingByFilter,
+  getNearByParking,
   getParkingById,
-  getParkingByIDadmin,
+  createParking,
   updateParking,
   deleteParking,
+  getParkingByIDadmin,
 } from "./parkingcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  parkingCreateSchema,
+  parkingUpdateSchema,
+  parkingFilterSchema,
+  parkingLocationSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const parkingRouter: Router = Router();
+const router: Router = express.Router();
 
 // Public routes (no authentication required)
-parkingRouter.get("/get", getParking);
-parkingRouter.get("/getbyid/:id", getParkingById);
+router.get("/get", validateRequest(parkingFilterSchema), getParking);
+router.get("/search", validateRequest(parkingFilterSchema), getParkingByFilter);
+router.get("/getbyid/:id", validateRequest(idParamSchema), getParkingById);
+router.get("/nearby", validateRequest(parkingLocationSchema), getNearByParking);
+router.post(
+  "/nearby",
+  validateRequest(parkingLocationSchema),
+  getNearByParking
+);
 
 // Admin-only routes (for parking management)
-parkingRouter.post("/add", verifyJWT, requireAdmin, createParking);
-parkingRouter.get(
+router.post(
+  "/add",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(parkingCreateSchema),
+  createParking
+);
+router.get(
   "/getbyidadmin/:id",
   verifyJWT,
   requireAdmin,
+  validateRequest(idParamSchema),
   getParkingByIDadmin
 );
-parkingRouter.put("/update/:id", verifyJWT, requireAdmin, updateParking);
-parkingRouter.delete("/delete/:id", verifyJWT, requireAdmin, deleteParking);
+router.put(
+  "/update/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...idParamSchema, ...parkingUpdateSchema }),
+  updateParking
+);
+router.delete(
+  "/delete/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(idParamSchema),
+  deleteParking
+);
 
-export default parkingRouter;
+export default router;

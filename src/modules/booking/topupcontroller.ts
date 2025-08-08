@@ -3,9 +3,17 @@ import { db } from "../../drizzle/db";
 import { topupTable, bookingTopupTable } from "./topupmodel";
 import { bookingsTable } from "./bookingmodel";
 import { asyncHandler } from "../utils/asyncHandler";
-import { ApiResponse } from "../utils/apiResponse";
 import { ApiError } from "../utils/apiError";
 import { eq, and, desc } from "drizzle-orm";
+import {
+  sendSuccess,
+  sendCreated,
+  sendUpdated,
+  sendDeleted,
+  sendItem,
+  sendList,
+} from "../utils/responseHandler";
+import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 
 // Extend the Request interface to include 'user' property
 interface AuthenticatedRequest extends Request {
@@ -18,18 +26,18 @@ interface AuthenticatedRequest extends Request {
 // Create topup (Admin only)
 export const createTopup = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user || req.user.role !== "admin") {
-        throw new ApiError(403, "Only admins can create topups");
-      }
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can create topups");
+    }
 
-      const { name, description, duration, price, category } = req.body;
+    const { name, description, duration, price, category } = req.body;
 
-      if (!name || !duration || !price) {
-        throw new ApiError(400, "Name, duration, and price are required");
-      }
+    if (!name || !duration || !price) {
+      throw ApiError.badRequest("Name, duration, and price are required");
+    }
 
-      const topup = await db
+    const topup = await withDatabaseErrorHandling(async () => {
+      const newTopup = await db
         .insert(topupTable)
         .values({
           name,
@@ -41,259 +49,229 @@ export const createTopup = asyncHandler(
         })
         .returning();
 
-      return res
-        .status(201)
-        .json(new ApiResponse(201, topup[0], "Topup created successfully"));
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to create topup");
-    }
+      return newTopup[0];
+    }, "createTopup");
+
+    return sendCreated(res, topup, "Topup created successfully");
   }
 );
 
 // Get all active topups
 export const getActiveTopups = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const topups = await db
+    const topups = await withDatabaseErrorHandling(async () => {
+      return await db
         .select()
         .from(topupTable)
         .where(eq(topupTable.isActive, true))
         .orderBy(desc(topupTable.createdAt));
+    }, "getActiveTopups");
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(200, topups, "Active topups fetched successfully")
-        );
-    } catch (error) {
-      console.log(error);
-      throw new ApiError(500, "Failed to fetch topups");
-    }
+    return sendList(
+      res,
+      topups,
+      topups.length,
+      "Active topups fetched successfully"
+    );
   }
 );
 
 // Apply topup to booking
 export const applyTopupToBooking = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { bookingId, topupId, paymentReferenceId } = req.body;
+    const { bookingId, topupId, paymentReferenceId } = req.body;
 
+    if (!bookingId || !topupId || !paymentReferenceId) {
+      throw ApiError.badRequest(
+        "Booking ID, topup ID, and payment reference ID are required"
+      );
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
       // Get booking details
       const booking = await db.query.bookingsTable.findFirst({
         where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
       });
 
       if (!booking) {
-        throw new ApiError(404, "Booking not found");
+        throw ApiError.notFound("Booking not found");
       }
 
       if (booking.userId !== req.user.id) {
-        throw new ApiError(
-          403,
+        throw ApiError.forbidden(
           "You can only apply topups to your own bookings"
         );
       }
 
-      if (booking.status !== "active") {
-        throw new ApiError(400, "Topup can only be applied to active bookings");
-      }
-
       // Get topup details
-      const topup = await db.query.topupTable.findFirst({
-        where: (topupTable, { eq }) => eq(topupTable.id, topupId),
-      });
+      const topup = await db
+        .select()
+        .from(topupTable)
+        .where(eq(topupTable.id, topupId))
+        .limit(1);
 
-      if (!topup) {
-        throw new ApiError(404, "Topup not found");
+      if (!topup || topup.length === 0) {
+        throw ApiError.notFound("Topup not found");
       }
 
-      if (!topup.isActive) {
-        throw new ApiError(400, "This topup is not available");
+      if (!topup[0].isActive) {
+        throw ApiError.badRequest("This topup is not active");
       }
 
       // Calculate new end date
-      const currentEndDate = new Date(booking.endDate);
+      const originalEndDate = new Date(booking.endDate);
+      const extensionTime = topup[0].duration; // in hours
       const newEndDate = new Date(
-        currentEndDate.getTime() + topup.duration * 60 * 60 * 1000
+        originalEndDate.getTime() + extensionTime * 60 * 60 * 1000
       );
 
-      // Create booking topup record
+      // Create booking-topup relationship
       const bookingTopup = await db
         .insert(bookingTopupTable)
         .values({
           bookingId: bookingId,
           topupId: topupId,
           appliedAt: new Date(),
-          originalEndDate: currentEndDate,
+          originalEndDate: originalEndDate,
           newEndDate: newEndDate,
-          amount: topup.price,
+          amount: topup[0].price,
           paymentStatus: "paid",
           paymentReferenceId: paymentReferenceId,
         })
         .returning();
 
-      // Update booking end date and extension details
-      await db
+      // Update booking with new end date and extension details
+      const updatedBooking = await db
         .update(bookingsTable)
         .set({
           endDate: newEndDate,
-          extensionPrice: (booking.extensionPrice || 0) + topup.price,
+          extensionPrice: topup[0].price,
           extensionTill: newEndDate,
-          extensionTime: (booking.extensionTime || 0) + topup.duration,
-          updatedAt: new Date(),
+          extensionTime: extensionTime,
         })
-        .where(eq(bookingsTable.id, bookingId));
+        .where(eq(bookingsTable.id, bookingId))
+        .returning();
 
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            bookingTopup: bookingTopup[0],
-            newEndDate: newEndDate,
-            extensionHours: topup.duration,
-          },
-          "Topup applied successfully"
-        )
-      );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to apply topup");
-    }
+      return {
+        bookingTopup: bookingTopup[0],
+        updatedBooking: updatedBooking[0],
+        topup: topup[0],
+      };
+    }, "applyTopupToBooking");
+
+    return sendSuccess(res, result, "Topup applied successfully");
   }
 );
 
-// Get booking topups
+// Get topups for a specific booking
 export const getBookingTopups = asyncHandler(
-  async (req: Request, res: Response) => {
-    try {
-      const { bookingId } = req.params;
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { bookingId } = req.params;
 
-      const topups = await db.query.bookingTopupTable.findMany({
+    if (!bookingId || !/^[0-9]+$/.test(bookingId)) {
+      throw ApiError.badRequest("Invalid booking ID");
+    }
+
+    const topups = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingTopupTable.findMany({
         where: (bookingTopupTable, { eq }) =>
           eq(bookingTopupTable.bookingId, parseInt(bookingId)),
         with: {
           topup: true,
         },
-        orderBy: (bookingTopupTable, { desc }) =>
-          desc(bookingTopupTable.createdAt),
       });
+    }, "getBookingTopups");
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(200, topups, "Booking topups fetched successfully")
-        );
-    } catch (error) {
-      console.log(error);
-      throw new ApiError(500, "Failed to fetch booking topups");
-    }
+    return sendList(
+      res,
+      topups,
+      topups.length,
+      "Booking topups fetched successfully"
+    );
   }
 );
 
-// Admin: Get all topups
+// Get all topups (Admin only)
 export const getAllTopups = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user || req.user.role !== "admin") {
-        throw new ApiError(403, "Only admins can view all topups");
-      }
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can view all topups");
+    }
 
-      const topups = await db
+    const topups = await withDatabaseErrorHandling(async () => {
+      return await db
         .select()
         .from(topupTable)
         .orderBy(desc(topupTable.createdAt));
+    }, "getAllTopups");
 
-      return res
-        .status(200)
-        .json(new ApiResponse(200, topups, "All topups fetched successfully"));
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch topups");
-    }
+    return sendList(
+      res,
+      topups,
+      topups.length,
+      "All topups fetched successfully"
+    );
   }
 );
 
-// Admin: Update topup
+// Update topup (Admin only)
 export const updateTopup = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user || req.user.role !== "admin") {
-        throw new ApiError(403, "Only admins can update topups");
-      }
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can update topups");
+    }
 
-      const { id } = req.params;
-      const { name, description, duration, price, category, isActive } =
-        req.body;
+    const { id } = req.params;
 
-      const topup = await db
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid topup ID");
+    }
+
+    const topup = await withDatabaseErrorHandling(async () => {
+      const updatedTopup = await db
         .update(topupTable)
         .set({
-          name,
-          description,
-          duration: duration ? parseInt(duration) : undefined,
-          price: price ? parseFloat(price) : undefined,
-          category,
-          isActive,
+          ...req.body,
           updatedAt: new Date(),
         })
         .where(eq(topupTable.id, parseInt(id)))
         .returning();
 
-      if (!topup[0]) {
-        throw new ApiError(404, "Topup not found");
+      if (!updatedTopup || updatedTopup.length === 0) {
+        throw ApiError.notFound("Topup not found");
       }
 
-      return res
-        .status(200)
-        .json(new ApiResponse(200, topup[0], "Topup updated successfully"));
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to update topup");
-    }
+      return updatedTopup[0];
+    }, "updateTopup");
+
+    return sendUpdated(res, topup, "Topup updated successfully");
   }
 );
 
-// Admin: Delete topup
+// Delete topup (Admin only)
 export const deleteTopup = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user || req.user.role !== "admin") {
-        throw new ApiError(403, "Only admins can delete topups");
-      }
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can delete topups");
+    }
 
-      const { id } = req.params;
+    const { id } = req.params;
 
-      const topup = await db
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid topup ID");
+    }
+
+    await withDatabaseErrorHandling(async () => {
+      const deletedTopup = await db
         .delete(topupTable)
         .where(eq(topupTable.id, parseInt(id)))
         .returning();
 
-      if (!topup[0]) {
-        throw new ApiError(404, "Topup not found");
+      if (!deletedTopup || deletedTopup.length === 0) {
+        throw ApiError.notFound("Topup not found");
       }
+    }, "deleteTopup");
 
-      return res
-        .status(200)
-        .json(new ApiResponse(200, null, "Topup deleted successfully"));
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to delete topup");
-    }
+    return sendDeleted(res, "Topup deleted successfully");
   }
 );

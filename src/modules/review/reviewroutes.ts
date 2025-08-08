@@ -1,38 +1,61 @@
-import { Router } from "express";
-import {
-  verifyJWT,
-  requireUser,
-  requireOwnerOrAdmin,
-} from "../middleware/auth";
+import express, { Router } from "express";
 import {
   addreview,
-  getreviews,
+  getavgratingbycars,
   getreviewsbycars,
+  getreviews,
   updatereview,
   deletereview,
 } from "./reviewcontroller";
+import { verifyJWT, requireUser } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  carIdParamSchema,
+  reviewIdParamSchema,
+  reviewCreateSchema,
+  reviewUpdateSchema,
+  reviewQuerySchema,
+} from "../utils/validation";
 
-const reviewRouter: Router = Router();
+const router: Router = express.Router();
 
 // Public routes (no authentication required)
-reviewRouter.get("/getreviews", getreviews);
-reviewRouter.get("/getreviewsbycars/:carid", getreviewsbycars);
+router.get("/getreviews", validateRequest(reviewQuerySchema), getreviews);
+router.get(
+  "/getreviewsbycars/:carid",
+  validateRequest({ ...carIdParamSchema, ...reviewQuerySchema }),
+  getreviewsbycars
+);
+router.get(
+  "/avg-rating/:carid",
+  validateRequest(carIdParamSchema),
+  getavgratingbycars
+);
 
 // User-only routes (for creating reviews)
-reviewRouter.post("/addreview/:carid", verifyJWT, requireUser, addreview);
+router.post(
+  "/addreview/:carid",
+  verifyJWT,
+  requireUser,
+  validateRequest({ ...carIdParamSchema, ...reviewCreateSchema }),
+  addreview
+);
 
 // Owner or Admin routes (for updating/deleting reviews)
-reviewRouter.put(
+router.put(
   "/updatereview/:reviewid",
   verifyJWT,
-  requireOwnerOrAdmin,
+  requireUser,
+  validateRequest({ ...reviewIdParamSchema, ...reviewUpdateSchema }),
   updatereview
 );
-reviewRouter.delete(
+router.delete(
   "/deletereview/:reviewid",
   verifyJWT,
-  requireOwnerOrAdmin,
+  requireUser,
+  validateRequest(reviewIdParamSchema),
   deletereview
 );
 
-export default reviewRouter;
+export default router;

@@ -2,10 +2,18 @@ import { Request, Response } from "express";
 import { db } from "../../drizzle/db";
 import { bookingsTable } from "./bookingmodel";
 import { asyncHandler } from "../utils/asyncHandler";
-import { ApiResponse } from "../utils/apiResponse";
 import { eq, between, and, gte, lte, sql } from "drizzle-orm";
 import { carModel } from "../car/carmodel";
 import { ApiError } from "../utils/apiError";
+import {
+  sendSuccess,
+  sendCreated,
+  sendUpdated,
+  sendDeleted,
+  sendItem,
+  sendList,
+} from "../utils/responseHandler";
+import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 
 // Extend the Request interface to include 'user' property
 interface AuthenticatedRequest extends Request {
@@ -15,83 +23,85 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-export const createBooking = asyncHandler(
+export const createBooking = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
+    const { carId, startDate, endDate, deliveryCharges = 0 } = req.body;
+
+    // Validate required fields
+    if (!carId || !startDate || !endDate) {
+      throw ApiError.badRequest(
+        "Car ID, start date, and end date are required"
+      );
+    }
+
+    // Validate dates
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+
+    if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+      throw ApiError.badRequest("Invalid date format");
+    }
+
+    if (startDateObj >= endDateObj) {
+      throw ApiError.badRequest("End date must be after start date");
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      // Get car details
       const carprice = await db
         .select()
         .from(carModel)
-        .where(eq(carModel.id, req.body.carId));
-      if (!carprice) {
-        return res
-          .status(404)
-          .json(new ApiResponse(404, null, "Car not found"));
+        .where(eq(carModel.id, carId));
+
+      if (!carprice || carprice.length === 0) {
+        throw ApiError.notFound("Car not found");
       }
 
       // Check if user is verified
-    if ((req.user as any).isverified === false) {
-        return res
-          .status(403)
-          .json(
-            new ApiResponse(
-              403,
-              null,
-              "Please login and verify your account to continue"
-            )
-          );
+      if ((req.user as any).isverified === false) {
+        throw ApiError.forbidden(
+          "Please login and verify your account to continue"
+        );
       }
 
-    const startDate = new Date(req.body.startDate);
-    const endDate = new Date(req.body.endDate);
-    
-    // Check for overlapping bookings for the same car
-    const overlappingBookings = await db.query.bookingsTable.findMany({
+      // Check for overlapping bookings for the same car
+      const overlappingBookings = await db.query.bookingsTable.findMany({
         where: (bookingsTable, { eq, and, lte, gte }) =>
           and(
-            eq(bookingsTable.carId, req.body.carId),
-            lte(bookingsTable.startDate, endDate),
-            gte(bookingsTable.endDate, startDate),
+            eq(bookingsTable.carId, carId),
+            lte(bookingsTable.startDate, endDateObj),
+            gte(bookingsTable.endDate, startDateObj),
             // Only check active bookings (not cancelled)
             sql`${bookingsTable.status} NOT IN ('cancelled')`
           ),
-    });
+      });
 
-    if (overlappingBookings.length > 0) {
-        return res.status(409).json(
-          new ApiResponse(
-            409,
-            overlappingBookings.map((b) => ({
-              startDate: b.startDate,
-              endDate: b.endDate,
-            })),
-            "Car is already booked for the selected dates"
-          )
-        );
+      if (overlappingBookings.length > 0) {
+        throw ApiError.conflict("Car is already booked for the selected dates");
       }
 
       // Calculate pricing
       const days = Math.ceil(
-        (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+        (endDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24)
       );
       const basePrice =
         (carprice[0]?.discountprice || carprice[0]?.price || 0) * days;
       const advancePercentage = 0.3; // 30% advance payment (configurable by admin)
       const advanceAmount = basePrice * advancePercentage;
       const remainingAmount = basePrice - advanceAmount;
-      const deliveryCharges = req.body.deliveryCharges || 0;
       const totalPrice = basePrice + deliveryCharges;
 
-      const booking = await db
+      const newBooking = await db
         .insert(bookingsTable)
         .values({
-        ...req.body,
-        userId: Number(req.user.id),
+          ...req.body,
+          userId: Number(req.user.id),
           basePrice: basePrice,
           advanceAmount: advanceAmount,
           remainingAmount: remainingAmount,
-        totalPrice: totalPrice,
-        startDate: startDate,
-        endDate: endDate,
+          totalPrice: totalPrice,
+          startDate: startDateObj,
+          endDate: endDateObj,
           status: "pending", // Will change to advance_paid after payment
           advancePaymentStatus: "pending",
           finalPaymentStatus: "pending",
@@ -99,826 +109,621 @@ export const createBooking = asyncHandler(
         })
         .returning();
 
-      if (!booking) {
-        return res
-          .status(400)
-          .json(new ApiResponse(400, null, "Booking not created"));
-      }
+      return newBooking[0];
+    }, "createBooking");
 
-    const bookingdetails = await db.query.bookingsTable.findFirst({
-        where: (bookingsTable, { eq }) => eq(bookingsTable.id, booking[0].id),
-        with: {
-            car: true,
-            pickupParking: true,
-            dropoffParking: true,
-          user: true,
-        },
-      });
-
-      return res.status(201).json(
-        new ApiResponse(
-          201,
-          {
-            booking: bookingdetails,
-            paymentDetails: {
-              basePrice: basePrice,
-              advanceAmount: advanceAmount,
-              remainingAmount: remainingAmount,
-              totalPrice: totalPrice,
-              deliveryCharges: deliveryCharges,
-            },
-          },
-          "Booking created successfully. Please complete advance payment to confirm."
-        )
-      );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to create booking");
-    }
+    return sendCreated(res, booking, "Booking created successfully");
   }
 );
 
-export const getBookings = asyncHandler(async (req: Request, res: Response) => {
-    try {
-        const booking = await db.query.bookingsTable.findMany({
-            with: {
-                car: true,
-                pickupParking: true,
-                dropoffParking: true,
-                user: {
-                    columns: {
-                        id: true,
-                        name: true,
-                        avatar: true,
-                        age: true,
-                        number: true,
-                        email: true,
-                        aadharNumber: true,
-                        aadharimg: true,
-                        dlNumber: true,
-                        dlimg: true,
-                        passportNumber: true,
-                        passportimg: true,
-                        lat: true,
-                        lng: true,
-                        locality: true,
-                        city: true,
-                        state: true,
-                        country: true,
-                        pincode: true,
-                        role: true,
-                        isverified: true,
-                        parkingid: true,
-                        createdAt: true,
-            updatedAt: true,
-          },
-        },
-      },
-    });
-    res
-      .status(200)
-      .json(new ApiResponse(200, booking, "Bookings fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
-    }
-});
-
 export const getBookingByDateRange = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-        const { startDate, endDate } = req.body;
-        
-        // Validate input
-        if (!startDate || !endDate) {
-        return res
-          .status(400)
-          .json(
-            new ApiResponse(400, null, "Start date and end date are required")
-          );
-        }
-        
-        // Convert string dates to Date objects
-        const startDateObj = new Date(startDate);
-        const endDateObj = new Date(endDate);
-   
-        if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
-        return res
-          .status(400)
-          .json(new ApiResponse(400, null, "Invalid date format"));
-      }
+    const { startDate, endDate } = req.body;
 
-      const bookings = await db.query.bookingsTable.findMany({
+    // Validate input
+    if (!startDate || !endDate) {
+      throw ApiError.badRequest("Start date and end date are required");
+    }
+
+    // Convert string dates to Date objects
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+
+    if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+      throw ApiError.badRequest("Invalid date format");
+    }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
         where: (bookingsTable, { and, lte, gte }) =>
           and(
-                    lte(bookingsTable.startDate, endDateObj),
-                    gte(bookingsTable.endDate, startDateObj)
-                ),
-                with: {
-                    car: true,
-                    pickupParking: true,
-                    dropoffParking: true,
-                    user: {
-                        columns: {
-                            id: true,
-                            name: true,
-                            avatar: true,
-                            age: true,
-                            number: true,
-                            email: true,
-                            aadharNumber: true,
-                            aadharimg: true,
-                            dlNumber: true,
-                            dlimg: true,
-                            passportNumber: true,
-                            passportimg: true,
-                            lat: true,
-                            lng: true,
-                            locality: true,
-                            city: true,
-                            state: true,
-                            country: true,
-                            pincode: true,
-                            role: true,
-                            isverified: true,
-                            parkingid: true,
-                            createdAt: true,
+            lte(bookingsTable.startDate, endDateObj),
+            gte(bookingsTable.endDate, startDateObj)
+          ),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: {
+            columns: {
+              id: true,
+              name: true,
+              avatar: true,
+              age: true,
+              number: true,
+              email: true,
+              aadharNumber: true,
+              aadharimg: true,
+              dlNumber: true,
+              dlimg: true,
+              passportNumber: true,
+              passportimg: true,
+              lat: true,
+              lng: true,
+              locality: true,
+              city: true,
+              state: true,
+              country: true,
+              pincode: true,
+              role: true,
+              isverified: true,
+              parkingid: true,
+              createdAt: true,
               updatedAt: true,
             },
           },
         },
       });
+    }, "getBookingByDateRange");
 
-      res
-        .status(200)
-        .json(new ApiResponse(200, bookings, "Bookings fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
-    }
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
 export const getBookingByDateRangeByCarId = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-        const { startDate, endDate } = req.body;
-        
-        // Validate input
-        if (!startDate || !endDate) {
-        return res
-          .status(400)
-          .json(
-            new ApiResponse(400, null, "Start date and end date are required")
-          );
-        }
-        
-        // Convert string dates to Date objects
-        const startDateObj = new Date(startDate);
-        const endDateObj = new Date(endDate);
-   
-        if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
-        return res
-          .status(400)
-          .json(new ApiResponse(400, null, "Invalid date format"));
-      }
+    const { startDate, endDate, carId } = req.body;
 
-      const bookings = await db.query.bookingsTable.findMany({
-        where: (bookingsTable, { eq, and, lte, gte }) =>
+    // Validate input
+    if (!startDate || !endDate || !carId) {
+      throw ApiError.badRequest(
+        "Start date, end date, and car ID are required"
+      );
+    }
+
+    // Convert string dates to Date objects
+    const startDateObj = new Date(startDate);
+    const endDateObj = new Date(endDate);
+
+    if (isNaN(startDateObj.getTime()) || isNaN(endDateObj.getTime())) {
+      throw ApiError.badRequest("Invalid date format");
+    }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { and, lte, gte, eq }) =>
           and(
-                    eq(bookingsTable.carId, parseInt(req.params.id)),
-                    lte(bookingsTable.startDate, endDateObj),
-                    gte(bookingsTable.endDate, startDateObj)
-                ),
-                with: {
-                    car: true,
-                    pickupParking: true,
-                    dropoffParking: true,
-                    user: {
-                        columns: {
-                            id: true,
-                            name: true,
-                            avatar: true,
-                            age: true,
-                            number: true,
-                            email: true,
-                            aadharNumber: true,
-                            aadharimg: true,
-                            dlNumber: true,
-                            dlimg: true,
-                            passportNumber: true,
-                            passportimg: true,
-                            lat: true,
-                            lng: true,
-                            locality: true,
-                            city: true,
-                            state: true,
-                            country: true,
-                            pincode: true,
-                            role: true,
-                            isverified: true,
-                            parkingid: true,
-                            createdAt: true,
+            eq(bookingsTable.carId, carId),
+            lte(bookingsTable.startDate, endDateObj),
+            gte(bookingsTable.endDate, startDateObj)
+          ),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: {
+            columns: {
+              id: true,
+              name: true,
+              avatar: true,
+              age: true,
+              number: true,
+              email: true,
+              aadharNumber: true,
+              aadharimg: true,
+              dlNumber: true,
+              dlimg: true,
+              passportNumber: true,
+              passportimg: true,
+              lat: true,
+              lng: true,
+              locality: true,
+              city: true,
+              state: true,
+              country: true,
+              pincode: true,
+              role: true,
+              isverified: true,
+              parkingid: true,
+              createdAt: true,
               updatedAt: true,
             },
           },
         },
       });
+    }, "getBookingByDateRangeByCarId");
 
-      res
-        .status(200)
-        .json(new ApiResponse(200, bookings, "Bookings fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
-    }
-  }
-);
-
-export const getbookingbyid = asyncHandler(
-  async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        
-        // Import required models
-        const { carModel } = await import("../car/carmodel");
-        const { parkingTable } = await import("../parking/parkingmodel");
-        const { UserTable } = await import("../user/usermodel");
-        
-        // Get booking with car and user details
-        const result = await db.query.bookingsTable.findFirst({
-        where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(id)),
-            with: {
-                car: true,
-                pickupParking: true,
-                dropoffParking: true,
-                user: {
-                    columns: {
-                        id: true,
-                        name: true,
-                        avatar: true,
-                        age: true,
-                        number: true,
-                        email: true,
-                        aadharNumber: true,
-                        aadharimg: true,
-                        dlNumber: true,
-                        dlimg: true,
-                        passportNumber: true,
-                        passportimg: true,
-                        lat: true,
-                        lng: true,
-                        locality: true,
-                        city: true,
-                        state: true,
-                        country: true,
-                        pincode: true,
-                        role: true,
-                        isverified: true,
-                        parkingid: true,
-                        createdAt: true,
-              updatedAt: true,
-            },
-          },
-        },
-      });
-
-      res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            result,
-            "Booking with details fetched successfully"
-          )
-        );
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
-    }
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
 export const updatebooking = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-        // Validate and convert date fields if present
-        const updateData: any = { ...req.body };
+    const { id } = req.params;
+    const updateData = req.body;
 
-        if (updateData.startDate) {
-            const startDate = new Date(updateData.startDate);
-            if (isNaN(startDate.getTime())) {
-          return res
-            .status(400)
-            .json(new ApiResponse(400, null, "Invalid startDate format"));
-            }
-            updateData.startDate = startDate;
-        }
-        if (updateData.endDate) {
-            const endDate = new Date(updateData.endDate);
-            if (isNaN(endDate.getTime())) {
-          return res
-            .status(400)
-            .json(new ApiResponse(400, null, "Invalid endDate format"));
-            }
-            updateData.endDate = endDate;
-        }
-        if (updateData.extentiontill) {
-            const extentiontill = new Date(updateData.extentiontill);
-            if (isNaN(extentiontill.getTime())) {
-          return res
-            .status(400)
-            .json(new ApiResponse(400, null, "Invalid extentiontill format"));
-            }
-            updateData.extentiontill = extentiontill;
-        }
+    // Validate ID
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid booking ID");
+    }
 
-      const booking = await db
+    // Validate date formats if provided
+    if (updateData.startDate) {
+      const startDate = new Date(updateData.startDate);
+      if (isNaN(startDate.getTime())) {
+        throw ApiError.badRequest("Invalid startDate format");
+      }
+      updateData.startDate = startDate;
+    }
+
+    if (updateData.endDate) {
+      const endDate = new Date(updateData.endDate);
+      if (isNaN(endDate.getTime())) {
+        throw ApiError.badRequest("Invalid endDate format");
+      }
+      updateData.endDate = endDate;
+    }
+
+    if (updateData.extensionTill) {
+      const extensionTill = new Date(updateData.extensionTill);
+      if (isNaN(extensionTill.getTime())) {
+        throw ApiError.badRequest("Invalid extensionTill format");
+      }
+      updateData.extensionTill = extensionTill;
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const updatedBooking = await db
         .update(bookingsTable)
         .set(updateData)
-        .where(eq(bookingsTable.id, parseInt(req.params.id)))
+        .where(eq(bookingsTable.id, parseInt(id)))
         .returning();
-        // After updating the booking
-        if (updateData.status === "active") {
-            // Fetch the booking to get the carId
-            const updatedBooking = await db.query.bookingsTable.findFirst({
-          where: (bookingsTable, { eq }) =>
-            eq(bookingsTable.id, parseInt(req.params.id)),
-            });
-            if (updatedBooking && updatedBooking.carId) {
-          await db
-            .update(carModel)
-                    .set({ isavailable: false })
-                    .where(eq(carModel.id, updatedBooking.carId));
-            }
-        }
-      if (
-        updateData.status === "completed" ||
-        updateData.status === "cancelled"
-      ) {
-            const updatedBooking = await db.query.bookingsTable.findFirst({
-          where: (bookingsTable, { eq }) =>
-            eq(bookingsTable.id, parseInt(req.params.id)),
-            });
-            if (updatedBooking && updatedBooking.carId) {
-          await db
-            .update(carModel)
-                    .set({ isavailable: true })
-                    .where(eq(carModel.id, updatedBooking.carId));
-            }
-        }
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking updated successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
-    }
+
+      if (!updatedBooking || updatedBooking.length === 0) {
+        throw ApiError.notFound("Booking not found");
+      }
+
+      return updatedBooking[0];
+    }, "updatebooking");
+
+    return sendUpdated(res, booking, "Booking updated successfully");
   }
 );
 
 export const deletebooking = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const booking = await db
-        .delete(bookingsTable)
-        .where(eq(bookingsTable.id, parseInt(req.params.id)));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking deleted successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { id } = req.params;
+
+    // Validate ID
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid booking ID");
     }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const deletedBooking = await db
+        .delete(bookingsTable)
+        .where(eq(bookingsTable.id, parseInt(id)))
+        .returning();
+
+      if (!deletedBooking || deletedBooking.length === 0) {
+        throw ApiError.notFound("Booking not found");
+      }
+
+      return deletedBooking[0];
+    }, "deletebooking");
+
+    return sendDeleted(res, "Booking deleted successfully");
   }
 );
 
-export const getbookingbystatus = asyncHandler(
+export const getbookingbyid = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const booking = await db
-        .select()
-        .from(bookingsTable)
-        .where(eq(bookingsTable.status, req.body.status));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { id } = req.params;
+
+    // Validate ID
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid booking ID");
     }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const foundBooking = await db.query.bookingsTable.findFirst({
+        where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(id)),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: true,
+        },
+      });
+
+      if (!foundBooking) {
+        throw ApiError.notFound("Booking not found");
+      }
+
+      return foundBooking;
+    }, "getbookingbyid");
+
+    return sendItem(res, booking, "Booking fetched successfully");
   }
 );
 
 export const getbookingbyuserid = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const booking = await db
-        .select()
-        .from(bookingsTable)
-        .where(eq(bookingsTable.userId, parseInt(req.params.id)));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { userid } = req.params;
+
+    // Validate user ID
+    if (!userid || !/^[0-9]+$/.test(userid)) {
+      throw ApiError.badRequest("Invalid user ID");
     }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq }) =>
+          eq(bookingsTable.userId, parseInt(userid)),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: true,
+        },
+      });
+    }, "getbookingbyuserid");
+
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
 export const getbookingbycarid = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const booking = await db
-        .select()
-        .from(bookingsTable)
-        .where(eq(bookingsTable.carId, parseInt(req.params.id)));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { carid } = req.params;
+
+    // Validate car ID
+    if (!carid || !/^[0-9]+$/.test(carid)) {
+      throw ApiError.badRequest("Invalid car ID");
     }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq }) =>
+          eq(bookingsTable.carId, parseInt(carid)),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: true,
+        },
+      });
+    }, "getbookingbycarid");
+
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
-//admin routes
 export const getbookingbypickupParkingId = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-        // Fix: Properly check user role and handle missing req.user
-        const user = (req as any).user;
-        console.log(user);
-        if (!user || (user.role !== "admin" && user.role !== "parkingincharge")) {
-        return res
-          .status(403)
-          .json(
-            new ApiResponse(
-              403,
-              null,
-              "You are not authorized to access this resource"
-            )
-          );
-      }
-      const booking = await db
-        .select()
-        .from(bookingsTable)
-        .where(eq(bookingsTable.pickupParkingId, parseInt(req.params.id)));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { id } = req.params;
+
+    // Validate parking ID
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
     }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq }) =>
+          eq(bookingsTable.pickupParkingId, parseInt(id)),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: true,
+        },
+      });
+    }, "getbookingbypickupParkingId");
+
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
 export const getbookingbydropoffParkingId = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-        const user = (req as any).user;
-        console.log(user);
-        if (!user || (user.role !== "admin" && user.role !== "parkingincharge")) {
-        return res
-          .status(403)
-          .json(
-            new ApiResponse(
-              403,
-              null,
-              "You are not authorized to access this resource"
-            )
-          );
-      }
-      const booking = await db
-        .select()
-        .from(bookingsTable)
-        .where(eq(bookingsTable.dropoffParkingId, parseInt(req.params.id)));
-      res
-        .status(200)
-        .json(new ApiResponse(200, booking, "Booking fetched successfully"));
-    } catch (error) {
-        console.log(error);
-        res.status(500).json(new ApiResponse(500, null, "Internal server error"));
+    const { id } = req.params;
+
+    // Validate parking ID
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
     }
+
+    const bookings = await withDatabaseErrorHandling(async () => {
+      return await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq }) =>
+          eq(bookingsTable.dropoffParkingId, parseInt(id)),
+        with: {
+          car: true,
+          pickupParking: true,
+          dropoffParking: true,
+          user: true,
+        },
+      });
+    }, "getbookingbydropoffParkingId");
+
+    return sendList(
+      res,
+      bookings,
+      bookings.length,
+      "Bookings fetched successfully"
+    );
   }
 );
 
-// Advance Payment Confirmation
-export const confirmAdvancePayment = asyncHandler(
+// New booking flow functions
+export const confirmAdvancePayment = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { bookingId, paymentReferenceId } = req.body;
+    const { bookingId, paymentReferenceId } = req.body;
 
-      const booking = await db.query.bookingsTable.findFirst({
+    if (!bookingId || !paymentReferenceId) {
+      throw ApiError.badRequest(
+        "Booking ID and payment reference ID are required"
+      );
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const foundBooking = await db.query.bookingsTable.findFirst({
         where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
       });
 
-      if (!booking) {
-        throw new ApiError(404, "Booking not found");
+      if (!foundBooking) {
+        throw ApiError.notFound("Booking not found");
       }
 
-      if (booking.userId !== req.user.id) {
-        throw new ApiError(403, "You can only confirm your own bookings");
+      if (foundBooking.userId !== req.user.id) {
+        throw ApiError.forbidden(
+          "You can only confirm payments for your own bookings"
+        );
       }
 
-      if (booking.status !== "pending") {
-        throw new ApiError(400, "Booking is not in pending status");
+      if (foundBooking.advancePaymentStatus === "paid") {
+        throw ApiError.conflict("Advance payment already confirmed");
       }
 
-      // Update booking status
-      await db
+      const updatedBooking = await db
         .update(bookingsTable)
         .set({
-          status: "advance_paid",
           advancePaymentStatus: "paid",
           advancePaymentReferenceId: paymentReferenceId,
-          updatedAt: new Date(),
+          status: "advance_paid",
         })
-        .where(eq(bookingsTable.id, bookingId));
+        .where(eq(bookingsTable.id, bookingId))
+        .returning();
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            null,
-            "Advance payment confirmed. You can now proceed with car pickup."
-          )
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to confirm advance payment");
-    }
+      return updatedBooking[0];
+    }, "confirmAdvancePayment");
+
+    return sendUpdated(res, booking, "Advance payment confirmed successfully");
   }
 );
 
-// Submit Confirmation Request (User uploads car condition images)
-export const submitConfirmationRequest = asyncHandler(
+export const submitConfirmationRequest = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { bookingId, carConditionImages, toolImages, tools } = req.body;
+    const { bookingId, carConditionImages, tools, toolImages } = req.body;
 
-      const booking = await db.query.bookingsTable.findFirst({
+    if (!bookingId) {
+      throw ApiError.badRequest("Booking ID is required");
+    }
+
+    if (!carConditionImages || !Array.isArray(carConditionImages)) {
+      throw ApiError.badRequest("Car condition images are required");
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const foundBooking = await db.query.bookingsTable.findFirst({
         where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
       });
 
-      if (!booking) {
-        throw new ApiError(404, "Booking not found");
+      if (!foundBooking) {
+        throw ApiError.notFound("Booking not found");
       }
 
-      if (booking.userId !== req.user.id) {
-        throw new ApiError(
-          403,
-          "You can only submit confirmation for your own bookings"
+      if (foundBooking.userId !== req.user.id) {
+        throw ApiError.forbidden(
+          "You can only submit confirmation requests for your own bookings"
         );
       }
 
-      if (booking.status !== "advance_paid") {
-        throw new ApiError(400, "Booking must be in advance_paid status");
+      if (foundBooking.advancePaymentStatus !== "paid") {
+        throw ApiError.badRequest(
+          "Advance payment must be completed before submitting confirmation request"
+        );
       }
 
-      // Update booking with confirmation request
-      await db
+      const updatedBooking = await db
         .update(bookingsTable)
         .set({
           carConditionImages: carConditionImages,
-          toolImages: toolImages,
-          tools: tools,
-          confirmationStatus: "pending",
-          updatedAt: new Date(),
+          tools: tools || [],
+          toolImages: toolImages || [],
+          userConfirmed: true,
+          userConfirmedAt: new Date(),
+          confirmationStatus: "pending_approval",
         })
-        .where(eq(bookingsTable.id, bookingId));
+        .where(eq(bookingsTable.id, bookingId))
+        .returning();
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            null,
-            "Confirmation request submitted. Waiting for PIC approval."
-          )
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to submit confirmation request");
-    }
+      return updatedBooking[0];
+    }, "submitConfirmationRequest");
+
+    return sendUpdated(
+      res,
+      booking,
+      "Confirmation request submitted successfully"
+    );
   }
 );
 
-// PIC Approve/Reject Confirmation Request
-export const picApproveConfirmation = asyncHandler(
+export const picApproveConfirmation = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { bookingId, approved, comments } = req.body;
+    const { bookingId, approved, comments } = req.body;
 
-      const booking = await db.query.bookingsTable.findFirst({
+    if (!bookingId || approved === undefined) {
+      throw ApiError.badRequest("Booking ID and approval status are required");
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const foundBooking = await db.query.bookingsTable.findFirst({
         where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
       });
 
-      if (!booking) {
-        throw new ApiError(404, "Booking not found");
+      if (!foundBooking) {
+        throw ApiError.notFound("Booking not found");
       }
 
-      // Check if user is PIC for this parking
-      if (booking.pickupParkingId !== (req.user as any).parkingid) {
-        throw new ApiError(
-          403,
-          "You can only approve bookings for your parking"
-        );
+      if (foundBooking.confirmationStatus !== "pending_approval") {
+        throw ApiError.badRequest("Booking is not pending approval");
       }
 
-      if (booking.confirmationStatus !== "pending") {
-        throw new ApiError(400, "Confirmation request is not pending");
-      }
-
-      const newStatus = approved ? "approved" : "rejected";
-      const newBookingStatus = approved ? "confirmed" : "advance_paid";
-
-      // Update booking
-      await db
+      const updatedBooking = await db
         .update(bookingsTable)
         .set({
           picApproved: approved,
-          picApprovedAt: approved ? new Date() : null,
-          picApprovedBy: approved ? req.user.id : null,
-          picComments: comments,
-          confirmationStatus: newStatus,
-          status: newBookingStatus,
-          updatedAt: new Date(),
+          picApprovedAt: new Date(),
+          picApprovedBy: req.user.id,
+          picComments: comments || null,
+          confirmationStatus: approved ? "approved" : "rejected",
         })
-        .where(eq(bookingsTable.id, bookingId));
+        .where(eq(bookingsTable.id, bookingId))
+        .returning();
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            null,
-            approved
-              ? "Confirmation approved. User can now make final payment."
-              : "Confirmation rejected. User can submit new request."
-          )
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to process confirmation request");
-    }
+      return updatedBooking[0];
+    }, "picApproveConfirmation");
+
+    const message = approved
+      ? "Booking approved successfully"
+      : "Booking rejected";
+    return sendUpdated(res, booking, message);
   }
 );
 
-// Final Payment Confirmation
-export const confirmFinalPayment = asyncHandler(
+export const confirmFinalPayment = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { bookingId, paymentReferenceId } = req.body;
+    const { bookingId, paymentReferenceId } = req.body;
 
-      const booking = await db.query.bookingsTable.findFirst({
+    if (!bookingId || !paymentReferenceId) {
+      throw ApiError.badRequest(
+        "Booking ID and payment reference ID are required"
+      );
+    }
+
+    const booking = await withDatabaseErrorHandling(async () => {
+      const foundBooking = await db.query.bookingsTable.findFirst({
         where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
       });
 
-      if (!booking) {
-        throw new ApiError(404, "Booking not found");
+      if (!foundBooking) {
+        throw ApiError.notFound("Booking not found");
       }
 
-      if (booking.userId !== req.user.id) {
-        throw new ApiError(403, "You can only confirm your own bookings");
-      }
-
-      if (booking.status !== "confirmed") {
-        throw new ApiError(
-          400,
-          "Booking must be confirmed before final payment"
+      if (foundBooking.userId !== req.user.id) {
+        throw ApiError.forbidden(
+          "You can only confirm payments for your own bookings"
         );
       }
 
-      // Update booking status
-      await db
+      if (foundBooking.confirmationStatus !== "approved") {
+        throw ApiError.badRequest(
+          "Booking must be approved before final payment"
+        );
+      }
+
+      if (foundBooking.finalPaymentStatus === "paid") {
+        throw ApiError.conflict("Final payment already confirmed");
+      }
+
+      const updatedBooking = await db
         .update(bookingsTable)
         .set({
-          status: "active",
           finalPaymentStatus: "paid",
           finalPaymentReferenceId: paymentReferenceId,
-          userConfirmed: true,
-          userConfirmedAt: new Date(),
-          updatedAt: new Date(),
+          status: "confirmed",
         })
-        .where(eq(bookingsTable.id, bookingId));
+        .where(eq(bookingsTable.id, bookingId))
+        .returning();
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            null,
-            "Final payment confirmed. Your booking is now active!"
-          )
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to confirm final payment");
-    }
+      return updatedBooking[0];
+    }, "confirmFinalPayment");
+
+    return sendUpdated(res, booking, "Final payment confirmed successfully");
   }
 );
 
-// Get PIC Dashboard Data (Bookings for PIC's parking)
-export const getPICDashboard = asyncHandler(
+export const getPICDashboard = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const parkingId = (req.user as any).parkingid;
-
-      if (!parkingId) {
-        throw new ApiError(403, "You are not assigned to any parking");
-      }
-
-      // Get pending confirmations
-      const pendingConfirmations = await db.query.bookingsTable.findMany({
-        where: (bookingsTable, { eq, and }) =>
-          and(
-            eq(bookingsTable.pickupParkingId, parkingId),
-            eq(bookingsTable.confirmationStatus, "pending"),
-            eq(bookingsTable.status, "advance_paid")
-          ),
+    const dashboardData = await withDatabaseErrorHandling(async () => {
+      // Get bookings that need PIC approval
+      const pendingApprovals = await db.query.bookingsTable.findMany({
+        where: (bookingsTable, { eq }) =>
+          eq(bookingsTable.confirmationStatus, "pending_approval"),
         with: {
-          user: {
-            columns: {
-              id: true,
-              name: true,
-              number: true,
-              email: true,
-            },
-          },
-          car: {
-            columns: {
-              id: true,
-              name: true,
-              number: true,
-            },
-          },
+          car: true,
+          user: true,
+          pickupParking: true,
+          dropoffParking: true,
         },
-        orderBy: (bookingsTable, { desc }) => desc(bookingsTable.createdAt),
       });
 
-      // Get active bookings
-      const activeBookings = await db.query.bookingsTable.findMany({
-        where: (bookingsTable, { eq, and }) =>
-          and(
-            eq(bookingsTable.pickupParkingId, parkingId),
-            eq(bookingsTable.status, "active")
-          ),
+      // Get upcoming vendor cars (for vendor tab)
+      const upcomingVendorCars = await db.query.carModel.findMany({
+        where: (carModel, { eq }) => eq(carModel.status, "unavailable"),
         with: {
-          user: {
-            columns: {
-              id: true,
-              name: true,
-              number: true,
-            },
-          },
-          car: {
-            columns: {
-              id: true,
-              name: true,
-              number: true,
-            },
-          },
+          vendor: true,
+          parking: true,
         },
-        orderBy: (bookingsTable, { desc }) => desc(bookingsTable.createdAt),
       });
 
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            pendingConfirmations,
-            activeBookings,
-            parkingId,
-          },
-          "PIC dashboard data fetched successfully"
-        )
-      );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch PIC dashboard data");
-    }
+      return {
+        pendingApprovals,
+        upcomingVendorCars,
+      };
+    }, "getPICDashboard");
+
+    return sendSuccess(
+      res,
+      dashboardData,
+      "PIC dashboard data retrieved successfully"
+    );
   }
 );

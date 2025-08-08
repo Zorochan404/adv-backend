@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createCarCatalog,
   getAllCarCatalog,
@@ -9,18 +9,50 @@ import {
   seedCarCatalog,
 } from "./carcatalogcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  carCatalogCreateSchema,
+  carCatalogUpdateSchema,
+  carCatalogFilterSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const carCatalogRouter: Router = Router();
+const router: Router = express.Router();
 
 // Public routes (no authentication required)
-carCatalogRouter.get("/active", getActiveCarCatalog);
-carCatalogRouter.get("/:id", getCarCatalogById);
+router.get("/active", getActiveCarCatalog);
+router.get("/:id", validateRequest(idParamSchema), getCarCatalogById);
 
 // Admin-only routes
-carCatalogRouter.post("/create", verifyJWT, requireAdmin, createCarCatalog);
-carCatalogRouter.get("/admin/all", verifyJWT, requireAdmin, getAllCarCatalog);
-carCatalogRouter.put("/:id", verifyJWT, requireAdmin, updateCarCatalog);
-carCatalogRouter.delete("/:id", verifyJWT, requireAdmin, deleteCarCatalog);
-carCatalogRouter.post("/seed", verifyJWT, requireAdmin, seedCarCatalog);
+router.post(
+  "/create",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(carCatalogCreateSchema),
+  createCarCatalog
+);
+router.get(
+  "/admin/all",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...carCatalogFilterSchema, ...paginationQuerySchema }),
+  getAllCarCatalog
+);
+router.put(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...idParamSchema, ...carCatalogUpdateSchema }),
+  updateCarCatalog
+);
+router.delete(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(idParamSchema),
+  deleteCarCatalog
+);
+router.post("/seed", verifyJWT, requireAdmin, seedCarCatalog);
 
-export default carCatalogRouter;
+export default router;

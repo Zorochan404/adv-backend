@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createAdvertisement,
   getAllAdvertisements,
@@ -6,45 +6,61 @@ import {
   updateAdvertisement,
   deleteAdvertisement,
   getActiveAdvertisements,
-  incrementViewCount,
-  incrementClickCount,
-  getAdvertisementStats,
 } from "./advertisementcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  advertisementCreateSchema,
+  advertisementUpdateSchema,
+  advertisementFilterSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const advertisementRouter: Router = Router();
+const router: Router = express.Router();
 
-// Public routes (no authentication required)
-advertisementRouter.get("/active", getActiveAdvertisements);
-advertisementRouter.get("/:id", getAdvertisementById);
-advertisementRouter.post("/view/:id", incrementViewCount);
-advertisementRouter.post("/click/:id", incrementClickCount);
-
-// Admin-only routes
-advertisementRouter.post(
-  "/create",
-  verifyJWT,
-  requireAdmin,
-  createAdvertisement
+// Public routes
+router.get(
+  "/",
+  validateRequest(advertisementFilterSchema),
+  getActiveAdvertisements
 );
-advertisementRouter.get(
-  "/admin/all",
+
+// Admin routes
+router.get(
+  "/all",
   verifyJWT,
   requireAdmin,
+  validateRequest({ ...advertisementFilterSchema, ...paginationQuerySchema }),
   getAllAdvertisements
 );
-advertisementRouter.put("/:id", verifyJWT, requireAdmin, updateAdvertisement);
-advertisementRouter.delete(
+router.get(
   "/:id",
   verifyJWT,
   requireAdmin,
-  deleteAdvertisement
+  validateRequest(idParamSchema),
+  getAdvertisementById
 );
-advertisementRouter.get(
-  "/admin/stats",
+router.post(
+  "/",
   verifyJWT,
   requireAdmin,
-  getAdvertisementStats
+  validateRequest(advertisementCreateSchema),
+  createAdvertisement
+);
+router.put(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...idParamSchema, ...advertisementUpdateSchema }),
+  updateAdvertisement
+);
+router.delete(
+  "/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(idParamSchema),
+  deleteAdvertisement
 );
 
-export default advertisementRouter;
+export default router;

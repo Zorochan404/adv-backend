@@ -1,10 +1,10 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   getUser,
   updateUser,
   deleteUser,
-  searchUser,
   getAllUsers,
+  searchUser,
   getUserbyrole,
   addParkingIncharge,
   getusersbyvendor,
@@ -16,43 +16,89 @@ import {
 import {
   verifyJWT,
   requireAdmin,
-  requireVendorOrAdmin,
   requireOwnerOrAdmin,
 } from "../middleware/auth";
+import {
+  validateRequest,
+  idParamSchema,
+  carIdParamSchema,
+  reviewIdParamSchema,
+  parkingIdParamSchema,
+  userCreateSchema,
+  userUpdateSchema,
+  userSearchSchema,
+  userRoleSchema,
+  parkingInchargeAssignSchema,
+  parkingInchargeByNumberSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
 
-const router: Router = Router();
+const router: Router = express.Router();
 
 // Public routes (no authentication required)
-router.get("/getuser/:id", getUser);
-router.get("/getallusers", getAllUsers);
-router.post("/searchuser", searchUser);
-router.post("/getuserbyrole", getUserbyrole);
+router.get("/getuser/:id", validateRequest(idParamSchema), getUser);
+router.get("/getallusers", validateRequest(paginationQuerySchema), getAllUsers);
+router.get("/search", validateRequest(userSearchSchema), searchUser);
+router.post("/getuserbyrole", validateRequest(userRoleSchema), getUserbyrole);
 
 // Admin-only routes (for user management)
-router.post("/addparkingincharge", verifyJWT, requireAdmin, addParkingIncharge);
-router.get("/getusersbyvendor", verifyJWT, requireAdmin, getusersbyvendor);
-router.post("/addvendor", verifyJWT, requireAdmin, addvendor);
+router.post(
+  "/addparkingincharge",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(userCreateSchema),
+  addParkingIncharge
+);
+router.get(
+  "/getusersbyvendor",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(paginationQuerySchema),
+  getusersbyvendor
+);
+router.post(
+  "/addvendor",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(userCreateSchema),
+  addvendor
+);
 router.post(
   "/getparkinginchargebynumber",
   verifyJWT,
   requireAdmin,
+  validateRequest(parkingInchargeByNumberSchema),
   getParkingInchargeByNumber
 );
 router.post(
   "/assignparkingincharge",
   verifyJWT,
   requireAdmin,
+  validateRequest(parkingInchargeAssignSchema),
   assignParkingIncharge
 );
 router.get(
   "/getparkinginchargebyparkingid/:parkingid",
   verifyJWT,
   requireAdmin,
+  validateRequest(parkingIdParamSchema),
   getParkingInchargeByParkingId
 );
 
 // Owner or Admin routes (for updating/deleting users)
-router.put("/updateuser/:id", verifyJWT, requireOwnerOrAdmin, updateUser);
-router.delete("/deleteuser/:id", verifyJWT, requireOwnerOrAdmin, deleteUser);
+router.put(
+  "/updateuser/:id",
+  verifyJWT,
+  requireOwnerOrAdmin,
+  validateRequest({ ...idParamSchema, ...userUpdateSchema }),
+  updateUser
+);
+router.delete(
+  "/deleteuser/:id",
+  verifyJWT,
+  requireOwnerOrAdmin,
+  validateRequest(idParamSchema),
+  deleteUser
+);
 
 export default router;

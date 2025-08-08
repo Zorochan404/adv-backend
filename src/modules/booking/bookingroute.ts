@@ -1,15 +1,8 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createBooking,
-  getBookings,
-  getbookingbypickupParkingId,
-  getbookingbydropoffParkingId,
   getbookingbyid,
-  getbookingbystatus,
   getbookingbyuserid,
-  getbookingbycarid,
-  getBookingByDateRange,
-  getBookingByDateRangeByCarId,
   updatebooking,
   deletebooking,
   confirmAdvancePayment,
@@ -18,46 +11,87 @@ import {
   confirmFinalPayment,
   getPICDashboard,
 } from "./bookingcontroller";
+import { verifyJWT, requireUser, requirePIC } from "../middleware/auth";
 import {
+  validateRequest,
+  idParamSchema,
+  bookingCreateSchema,
+  bookingPaymentSchema,
+  bookingConfirmationSchema,
+  bookingPICApprovalSchema,
+  paginationQuerySchema,
+} from "../utils/validation";
+
+const router: Router = express.Router();
+
+// User routes
+router.post(
+  "/",
   verifyJWT,
   requireUser,
-  requirePIC,
-  requireAdmin,
-  requireOwnerOrAdmin,
-} from "../middleware/auth";
+  validateRequest(bookingCreateSchema),
+  createBooking
+);
+router.get(
+  "/user",
+  verifyJWT,
+  requireUser,
+  validateRequest(paginationQuerySchema),
+  getbookingbyuserid
+);
+router.get(
+  "/:id",
+  verifyJWT,
+  requireUser,
+  validateRequest(idParamSchema),
+  getbookingbyid
+);
+router.put(
+  "/:id",
+  verifyJWT,
+  requireUser,
+  validateRequest({ ...idParamSchema, ...bookingCreateSchema }),
+  updatebooking
+);
+router.delete(
+  "/:id",
+  verifyJWT,
+  requireUser,
+  validateRequest(idParamSchema),
+  deletebooking
+);
 
-const router: Router = Router();
-
-// Public routes (no authentication required)
-router.get("/get", getBookings);
-router.get("/b/:id", getbookingbyid);
-router.get("/bs", getbookingbystatus);
-router.get("/bu/:id", getbookingbyuserid);
-router.get("/bc/:id", getbookingbycarid);
-router.post("/bd", getBookingByDateRange);
-router.post("/bcd/:id", getBookingByDateRangeByCarId);
-
-// User-only routes (for booking management)
-router.post("/add", verifyJWT, requireUser, createBooking);
-router.post("/confirm-advance", verifyJWT, requireUser, confirmAdvancePayment);
+// Payment routes
+router.post(
+  "/advance-payment",
+  verifyJWT,
+  requireUser,
+  validateRequest(bookingPaymentSchema),
+  confirmAdvancePayment
+);
 router.post(
   "/submit-confirmation",
   verifyJWT,
   requireUser,
+  validateRequest(bookingConfirmationSchema),
   submitConfirmationRequest
 );
-router.post("/confirm-final", verifyJWT, requireUser, confirmFinalPayment);
+router.post(
+  "/pic-approve",
+  verifyJWT,
+  requirePIC,
+  validateRequest(bookingPICApprovalSchema),
+  picApproveConfirmation
+);
+router.post(
+  "/final-payment",
+  verifyJWT,
+  requireUser,
+  validateRequest(bookingPaymentSchema),
+  confirmFinalPayment
+);
 
-// PIC-only routes (for parking management)
-router.post("/pic-approve", verifyJWT, requirePIC, picApproveConfirmation);
-router.get("/pic-dashboard", verifyJWT, requirePIC, getPICDashboard);
-
-// Admin-only routes
-router.get("/ppi/:id", verifyJWT, requireAdmin, getbookingbypickupParkingId);
-router.get("/dpi/:id", verifyJWT, requireAdmin, getbookingbydropoffParkingId);
-
-// Owner or Admin routes (for updating/deleting bookings)
-router.put("/b/:id", verifyJWT, requireOwnerOrAdmin, updatebooking);
-router.delete("/b/:id", verifyJWT, requireOwnerOrAdmin, deletebooking);
+// PIC routes
+router.get("/pic/dashboard", verifyJWT, requirePIC, getPICDashboard);
 
 export default router;

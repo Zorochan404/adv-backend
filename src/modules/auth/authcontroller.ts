@@ -3,32 +3,36 @@ import { UserTable } from "../user/usermodel";
 import { db } from "../../drizzle/db";
 import { and, eq, or } from "drizzle-orm";
 import { ApiError } from "../utils/apiError";
-import { ApiResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
+import { sendSuccess, sendCreated } from "../utils/responseHandler";
+import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 export const loginuser = asyncHandler(async (req: Request, res: Response) => {
   const { number, otp } = req.body;
 
-  // Validate required fields
+  // Validate required fields using the new error system
   if (!number) {
-    throw new ApiError(400, "Number is required");
+    throw ApiError.badRequest("Phone number is required");
   }
 
-  try {
+  if (!otp) {
+    throw ApiError.badRequest("OTP is required");
+  }
+
+  // Validate phone number format
+  if (!/^[0-9]{10}$/.test(number)) {
+    throw ApiError.badRequest("Invalid phone number format. Must be 10 digits");
+  }
+
+  // Validate OTP format
+  if (!/^[0-9]{4,6}$/.test(otp)) {
+    throw ApiError.badRequest("Invalid OTP format");
+  }
+
+  const result = await withDatabaseErrorHandling(async () => {
     const existingUsers = await db
-      .select()
-      .from(UserTable)
-      .where(and(eq(UserTable.number, number), eq(UserTable.role, "user")));
-  } catch (dbError) {
-    console.error("Database error:", dbError);
-    throw new ApiError(500, "Database operation failed");
-  }
-
-  let existingUsers;
-  try {
-    existingUsers = await db
       .select()
       .from(UserTable)
       .where(
@@ -37,74 +41,82 @@ export const loginuser = asyncHandler(async (req: Request, res: Response) => {
           or(eq(UserTable.role, "user"), eq(UserTable.role, "vendor"))
         )
       );
-  } catch (dbError) {
-    console.error("Database error:", dbError);
-    throw new ApiError(500, "Database operation failed");
-  }
 
-  if (existingUsers.length === 0) {
-    // User doesn't exist, create new user
-    let newUser;
-    try {
-      newUser = await db
+    if (existingUsers.length === 0) {
+      // User doesn't exist, create new user
+      const newUser = await db
         .insert(UserTable)
         .values({
           number: number,
           role: "user",
         })
         .returning();
-    } catch (dbError) {
-      console.error("Database error:", dbError);
-      throw new ApiError(500, "Database operation failed");
-    }
 
-    return res
-      .status(200)
-      .json({ message: "User created successfully", user: newUser[0] });
-  }
+      // Generate access token for new user
+      const accessToken = jwt.sign(
+        {
+          _id: newUser[0].id,
+          number: newUser[0].number,
+          role: newUser[0].role,
+        },
+        process.env.ACCESS_TOKEN_SECRET as string,
+        {
+          expiresIn: "1d",
+        }
+      );
 
-  // User exists, check OTP
-  const user = existingUsers[0];
+      // Exclude password from user object before sending response
+      const { password: _password, ...userWithoutPassword } = newUser[0];
 
-  console.log("user>>", user);
-
-  if (user.role === "admin") {
-    throw new ApiError(401, "Admin cannot login as user");
-  }
-
-  //removing role check for reusing this route with vendor
-  if (user.password !== otp) {
-    throw new ApiError(401, "Invalid OTP");
-  }
-  const accessToken = jwt.sign(
-    {
-      _id: user.id,
-      number: user.number,
-      role: user.role,
-    },
-    process.env.ACCESS_TOKEN_SECRET as string,
-    {
-      expiresIn: "1d", // Token expires in 1 day
-    }
-  );
-
-  // Exclude password from user object before sending response
-  const { password: _password, ...userWithoutPassword } = user;
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      {
+      return {
         user: userWithoutPassword,
         accessToken,
+        isNewUser: true,
+      };
+    }
+
+    // User exists, check OTP
+    const user = existingUsers[0];
+
+    if (user.role === "admin") {
+      throw ApiError.forbidden("Admin cannot login as user");
+    }
+
+    if (user.password !== otp) {
+      throw ApiError.unauthorized("Invalid OTP");
+    }
+
+    const accessToken = jwt.sign(
+      {
+        _id: user.id,
+        number: user.number,
+        role: user.role,
       },
-      "user login successful"
-    )
-  );
+      process.env.ACCESS_TOKEN_SECRET as string,
+      {
+        expiresIn: "1d",
+      }
+    );
+
+    // Exclude password from user object before sending response
+    const { password: _password, ...userWithoutPassword } = user;
+
+    return {
+      user: userWithoutPassword,
+      accessToken,
+      isNewUser: false,
+    };
+  }, "loginuser");
+
+  const message = result.isNewUser
+    ? "User created and logged in successfully"
+    : "User login successful";
+
+  return sendSuccess(res, result, message, result.isNewUser ? 201 : 200);
 });
 
 export const registerAdmin = asyncHandler(
   async (req: Request, res: Response) => {
-    console.log(req.body);
     const {
       number,
       password,
@@ -132,33 +144,41 @@ export const registerAdmin = asyncHandler(
 
     // Validate required fields
     if (!number || !password || !role) {
-      throw new ApiError(400, "Number, password, and role are required");
+      throw ApiError.badRequest("Number, password, and role are required");
     }
 
-    let existingUsers;
-    try {
-      existingUsers = await db
+    // Validate phone number format
+    if (!/^[0-9]{10}$/.test(number)) {
+      throw ApiError.badRequest(
+        "Invalid phone number format. Must be 10 digits"
+      );
+    }
+
+    // Validate role
+    const validRoles = ["admin", "user", "vendor", "parkingincharge"];
+    if (!validRoles.includes(role)) {
+      throw ApiError.badRequest(
+        `Invalid role. Must be one of: ${validRoles.join(", ")}`
+      );
+    }
+
+    const user = await withDatabaseErrorHandling(async () => {
+      const existingUsers = await db
         .select()
         .from(UserTable)
         .where(and(eq(UserTable.number, number), eq(UserTable.role, role)));
-    } catch (dbError) {
-      console.error("Database error:", dbError);
-      throw new ApiError(500, "Database operation failed");
-    }
 
-    if (existingUsers.length > 0) {
-      throw new ApiError(400, "User with this number and role already exists");
-    }
+      if (existingUsers.length > 0) {
+        throw ApiError.conflict(
+          "User with this number and role already exists"
+        );
+      }
 
-    // Hash the password
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+      // Hash the password
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    console.log("hashedPassword>>", hashedPassword);
-
-    let newUser;
-    try {
-      newUser = await db
+      const newUser = await db
         .insert(UserTable)
         .values({
           number: number,
@@ -185,97 +205,80 @@ export const registerAdmin = asyncHandler(
           lng: lng || null,
         })
         .returning();
-    } catch (dbError) {
-      console.error("Database error:", dbError);
-      throw new ApiError(500, "Database operation failed");
-    }
 
-    return res
-      .status(201)
-      .json(new ApiResponse(201, newUser[0], "User created successfully"));
+      // Exclude password from user object before sending response
+      const { password: _password, ...userWithoutPassword } = newUser[0];
+      return userWithoutPassword;
+    }, "registerAdmin");
+
+    return sendCreated(res, user, "User created successfully");
   }
 );
 
 export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
   const { number, password } = req.body;
 
+  // Validate required fields
   if (!number || !password) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "Number and password are required"));
+    throw ApiError.badRequest("Number and password are required");
   }
 
-  let existingUsers;
-  try {
-    existingUsers = await db
+  // Validate phone number format
+  if (!/^[0-9]{10}$/.test(number)) {
+    throw ApiError.badRequest("Invalid phone number format. Must be 10 digits");
+  }
+
+  const result = await withDatabaseErrorHandling(async () => {
+    const existingUsers = await db
       .select()
       .from(UserTable)
       .where(eq(UserTable.number, number));
-  } catch (dbError) {
-    console.error("Database error:", dbError);
-    return res
-      .status(500)
-      .json(new ApiResponse(500, null, "Database operation failed"));
-  }
 
-  if (existingUsers.length === 0) {
-    return res
-      .status(401)
-      .json(new ApiResponse(401, null, "Invalid pnone number"));
-  }
-
-  const user = existingUsers[0];
-
-  // Check if user has a password
-  if (!user.password) {
-    return res
-      .status(401)
-      .json(new ApiResponse(401, null, "Please pass a password"));
-  }
-
-  // Verify password using bcrypt
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-
-  if (!isPasswordValid) {
-    return res.status(401).json(new ApiResponse(401, null, "Invalid password"));
-  }
-
-  // Generate JWT token
-  if (!process.env.ACCESS_TOKEN_SECRET) {
-    return res
-      .status(500)
-      .json(
-        new ApiResponse(
-          500,
-          null,
-          "Server misconfiguration: missing ACCESS_TOKEN_SECRET"
-        )
-      );
-  }
-
-  const accessToken = jwt.sign(
-    {
-      _id: user.id,
-      number: user.number,
-      role: user.role,
-    },
-    process.env.ACCESS_TOKEN_SECRET,
-    {
-      expiresIn: "1d", // Token expires in 1 day
+    if (existingUsers.length === 0) {
+      throw ApiError.unauthorized("Invalid phone number");
     }
-  );
 
-  // Exclude password from user object before sending response
-  const { password: _password, ...userWithoutPassword } = user;
+    const user = existingUsers[0];
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
+    // Check if user has a password
+    if (!user.password) {
+      throw ApiError.unauthorized("Please provide a password");
+    }
+
+    // Verify password using bcrypt
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      throw ApiError.unauthorized("Invalid password");
+    }
+
+    // Generate JWT token
+    if (!process.env.ACCESS_TOKEN_SECRET) {
+      throw ApiError.internal(
+        "Server misconfiguration: missing ACCESS_TOKEN_SECRET"
+      );
+    }
+
+    const accessToken = jwt.sign(
       {
-        user: userWithoutPassword,
-        accessToken,
+        _id: user.id,
+        number: user.number,
+        role: user.role,
       },
-      "Admin login successful"
-    )
-  );
+      process.env.ACCESS_TOKEN_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+
+    // Exclude password from user object before sending response
+    const { password: _password, ...userWithoutPassword } = user;
+
+    return {
+      user: userWithoutPassword,
+      accessToken,
+    };
+  }, "loginAdmin");
+
+  return sendSuccess(res, result, "Admin login successful");
 });

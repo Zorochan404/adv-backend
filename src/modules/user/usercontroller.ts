@@ -2,241 +2,499 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { db } from "../../drizzle/db";
 import { UserTable } from "./usermodel";
 import { and, eq, like, or } from "drizzle-orm";
-import { ApiResponse } from "../utils/apiResponse";
 import { Request, Response } from "express";
 import { ApiError } from "../utils/apiError";
-
-
+import {
+  sendSuccess,
+  sendItem,
+  sendList,
+  sendUpdated,
+  sendDeleted,
+  sendPaginated,
+} from "../utils/responseHandler";
+import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
+import { sql } from "drizzle-orm";
 
 export const getUser = asyncHandler(async (req: Request, res: Response) => {
-    try{
-        const { id } = req.params;
-        const user = await db.select().from(UserTable).where(eq(UserTable.id, Number(id)));
-        return res.status(200).json(new ApiResponse(200, user, "User fetched successfully"));
-    }
-    catch(error){
-        console.error('Error fetching user:', error);
-        throw new ApiError(500, "Failed to fetch user");
-    }
-});
+  const { id } = req.params;
 
+  // Validate ID
+  if (!id || !/^[0-9]+$/.test(id)) {
+    throw ApiError.badRequest("Invalid user ID");
+  }
+
+  const user = await withDatabaseErrorHandling(async () => {
+    const foundUser = await db
+      .select()
+      .from(UserTable)
+      .where(eq(UserTable.id, Number(id)));
+
+    if (!foundUser || foundUser.length === 0) {
+      throw ApiError.notFound("User not found");
+    }
+
+    // Remove password from user object
+    const { password, ...userWithoutPassword } = foundUser[0];
+    return userWithoutPassword;
+  }, "getUser");
+
+  return sendItem(res, user, "User fetched successfully");
+});
 
 export const updateUser = asyncHandler(async (req: Request, res: Response) => {
-    try{
-    const { id } = req.params;
+  const { id } = req.params;
+  const { id: _id, password: _password, ...updateData } = req.body;
 
+  // Validate ID
+  if (!id || !/^[0-9]+$/.test(id)) {
+    throw ApiError.badRequest("Invalid user ID");
+  }
 
-    const { id: _id, password: _password, ...updateData } = req.body;
+  const user = await withDatabaseErrorHandling(async () => {
+    const updatedUser = await db
+      .update(UserTable)
+      .set(updateData)
+      .where(eq(UserTable.id, Number(id)))
+      .returning();
 
-    const user = await db
-        .update(UserTable)
-        .set(updateData)
-        .where(eq(UserTable.id, Number(id)))
-        .returning();
-
-    // Remove password from each user object
-    const usersWithoutPassword = user.map(({ password, ...user }) => user);
-
-    return res.status(200).json(new ApiResponse(200, usersWithoutPassword, "All users fetched successfully"));
+    if (!updatedUser || updatedUser.length === 0) {
+      throw ApiError.notFound("User not found");
     }
-    catch(error){
-        console.error('Error updating user:', error);
-        throw new ApiError(500, "Failed to update user");
-    }
+
+    // Remove password from user object
+    const { password, ...userWithoutPassword } = updatedUser[0];
+    return userWithoutPassword;
+  }, "updateUser");
+
+  return sendUpdated(res, user, "User updated successfully");
 });
-
 
 export const deleteUser = asyncHandler(async (req: Request, res: Response) => {
-    try{
-        const { id } = req.params;
-        const user = await db.delete(UserTable).where(eq(UserTable.id, Number(id)));
-        return res.status(200).json(new ApiResponse(200, user, "User deleted successfully"));
+  const { id } = req.params;
+
+  // Validate ID
+  if (!id || !/^[0-9]+$/.test(id)) {
+    throw ApiError.badRequest("Invalid user ID");
+  }
+
+  await withDatabaseErrorHandling(async () => {
+    const deletedUser = await db
+      .delete(UserTable)
+      .where(eq(UserTable.id, Number(id)))
+      .returning();
+
+    if (!deletedUser || deletedUser.length === 0) {
+      throw ApiError.notFound("User not found");
     }
-    catch(error){
-        console.error('Error deleting user:', error);
-        throw new ApiError(500, "Failed to delete user");
-    }
+  }, "deleteUser");
+
+  return sendDeleted(res, "User deleted successfully");
 });
 
-
-
 export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
-    try {
-        const users = await db.select().from(UserTable);
+  const users = await withDatabaseErrorHandling(async () => {
+    const allUsers = await db.select().from(UserTable);
 
-        // Remove password from each user object
-        const usersWithoutPassword = users.map(({ password, ...user }) => user);
+    // Remove password from each user object
+    return allUsers.map(({ password, ...user }) => user);
+  }, "getAllUsers");
 
-        return res.status(200).json(new ApiResponse(200, usersWithoutPassword, "All users fetched successfully"));
-    } catch (error) {
-        console.error('Error fetching all users:', error);
-        throw new ApiError(500, "Failed to fetch users");
-    }
+  return sendList(res, users, users.length, "All users fetched successfully");
 });
 
 export const searchUser = asyncHandler(async (req: Request, res: Response) => {
-    try{
-        const { search } = req.body;
-        
-        if (!search) {
-            throw new ApiError(400, "Search term is required");
-        }
-        
-        console.log('Search term:', search, 'Type:', typeof search);
-        
-        // Convert search term to number for numeric comparisons
-        const searchNumber = Number(search);
-        const searchPincode = Number(search);
-        
+  const queryParams = req.query;
 
-        
-        // Build search conditions
-        const searchConditions = [
-            like(UserTable.name, `%${search}%`),
-            like(UserTable.email, `%${search}%`),
-            like(UserTable.aadharNumber, `%${search}%`),
-            like(UserTable.dlNumber, `%${search}%`),
-            like(UserTable.passportNumber, `%${search}%`),
-            like(UserTable.locality, `%${search}%`),
-            like(UserTable.city, `%${search}%`),
-            like(UserTable.state, `%${search}%`),
-            like(UserTable.country, `%${search}%`)
-        ];
-        
-        // Add numeric conditions only if search term is a valid number
-        if (!isNaN(searchNumber)) {
-            searchConditions.push(eq(UserTable.number, searchNumber));
-          
-        }
-        
-        if (!isNaN(searchPincode)) {
-            searchConditions.push(eq(UserTable.pincode, searchPincode));
-           
-        }
-        
-        
-        
-        const user = await db.select().from(UserTable).where(or(...searchConditions));
-        
-       
-        
-       // Remove password from each user object
-       const usersWithoutPassword = user.map(({ password, ...user }) => user);
+  // Extract pagination parameters
+  const page = parseInt(queryParams.page as string) || 1;
+  const limit = parseInt(queryParams.limit as string) || 10;
+  const offset = (page - 1) * limit;
 
-       return res.status(200).json(new ApiResponse(200, usersWithoutPassword, "All users fetched successfully"));
+  // If no query parameters provided, return all users with pagination
+  if (
+    !queryParams ||
+    Object.keys(queryParams).length === 0 ||
+    (Object.keys(queryParams).length === 1 &&
+      (queryParams.page || queryParams.limit))
+  ) {
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get total count
+      const totalCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(UserTable);
+      const total = totalCount[0]?.count || 0;
+
+      // Get paginated users
+      const users = await db
+        .select()
+        .from(UserTable)
+        .limit(limit)
+        .offset(offset);
+
+      return {
+        users: users.map(({ password, ...user }) => user),
+        total,
+      };
+    }, "searchUser");
+
+    return sendPaginated(
+      res,
+      result.users,
+      result.total,
+      page,
+      limit,
+      "All users fetched successfully"
+    );
+  }
+
+  const result = await withDatabaseErrorHandling(async () => {
+    const conditions: any[] = [];
+
+    // Build filter conditions based on provided query parameters
+    Object.keys(queryParams).forEach((key) => {
+      const value = queryParams[key] as string;
+
+      if (value && key !== "page" && key !== "limit") {
+        switch (key.toLowerCase()) {
+          case "name":
+            conditions.push(
+              like(sql`lower(${UserTable.name})`, `%${value.toLowerCase()}%`)
+            );
+            break;
+          case "email":
+            conditions.push(
+              like(sql`lower(${UserTable.email})`, `%${value.toLowerCase()}%`)
+            );
+            break;
+          case "number":
+          case "phone":
+            const phoneNum = Number(value);
+            if (!isNaN(phoneNum)) {
+              conditions.push(eq(UserTable.number, phoneNum));
+            }
+            break;
+          case "role":
+            if (
+              ["user", "admin", "vendor", "parkingincharge"].includes(value)
+            ) {
+              conditions.push(eq(UserTable.role, value as any));
+            }
+            break;
+          case "city":
+            conditions.push(
+              like(sql`lower(${UserTable.city})`, `%${value.toLowerCase()}%`)
+            );
+            break;
+          case "state":
+            conditions.push(
+              like(sql`lower(${UserTable.state})`, `%${value.toLowerCase()}%`)
+            );
+            break;
+          case "country":
+            conditions.push(
+              like(sql`lower(${UserTable.country})`, `%${value.toLowerCase()}%`)
+            );
+            break;
+          case "locality":
+            conditions.push(
+              like(
+                sql`lower(${UserTable.locality})`,
+                `%${value.toLowerCase()}%`
+              )
+            );
+            break;
+          case "pincode":
+            const pincodeNum = Number(value);
+            if (!isNaN(pincodeNum)) {
+              conditions.push(eq(UserTable.pincode, pincodeNum));
+            }
+            break;
+          case "aadharnumber":
+          case "aadhar":
+            conditions.push(
+              like(
+                sql`lower(${UserTable.aadharNumber})`,
+                `%${value.toLowerCase()}%`
+              )
+            );
+            break;
+          case "dlnumber":
+          case "dl":
+            conditions.push(
+              like(
+                sql`lower(${UserTable.dlNumber})`,
+                `%${value.toLowerCase()}%`
+              )
+            );
+            break;
+          case "passportnumber":
+          case "passport":
+            conditions.push(
+              like(
+                sql`lower(${UserTable.passportNumber})`,
+                `%${value.toLowerCase()}%`
+              )
+            );
+            break;
+          case "isverified":
+            const isVerified = value.toLowerCase() === "true";
+            conditions.push(eq(UserTable.isverified, isVerified));
+            break;
+          default:
+            // For any other parameter, try to match against name, email, or number
+            conditions.push(
+              or(
+                like(sql`lower(${UserTable.name})`, `%${value.toLowerCase()}%`),
+                like(
+                  sql`lower(${UserTable.email})`,
+                  `%${value.toLowerCase()}%`
+                ),
+                eq(UserTable.number, Number(value) || 0)
+              )
+            );
+        }
+      }
+    });
+
+    // If no valid conditions, return all users with pagination
+    if (conditions.length === 0) {
+      const totalCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(UserTable);
+      const total = totalCount[0]?.count || 0;
+
+      const users = await db
+        .select()
+        .from(UserTable)
+        .limit(limit)
+        .offset(offset);
+
+      return {
+        users: users.map(({ password, ...user }) => user),
+        total,
+      };
     }
-    catch(error){
-       
-        throw new ApiError(500, "Failed to search user");
-    }
+
+    // Get total count with filters
+    const totalCountQuery = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(UserTable)
+      .where(and(...conditions));
+    const total = totalCountQuery[0]?.count || 0;
+
+    // Apply all conditions with AND logic and pagination
+    const foundUsers = await db
+      .select()
+      .from(UserTable)
+      .where(and(...conditions))
+      .limit(limit)
+      .offset(offset);
+
+    // Remove password from each user object
+    return {
+      users: foundUsers.map(({ password, ...user }) => user),
+      total,
+    };
+  }, "searchUser");
+
+  return sendPaginated(
+    res,
+    result.users,
+    result.total,
+    page,
+    limit,
+    "Users found successfully"
+  );
 });
 
+export const getUserbyrole = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { role } = req.body;
 
-export const getUserbyrole = asyncHandler(async (req: Request, res: Response) => {
-    try{
-        const { role } = req.body;
-        const user = await db.select().from(UserTable).where(eq(UserTable.role, role));
-        // Remove password from each user object
-       const usersWithoutPassword = user.map(({ password, ...user }) => user);
+    if (!role) {
+      throw ApiError.badRequest("Role is required");
+    }
 
-       return res.status(200).json(new ApiResponse(200, usersWithoutPassword, "All users fetched successfully"));
-    }
-    catch(error){
-        console.error('Error fetching user by role:', error);
-        throw new ApiError(500, "Failed to fetch user by role");
-    }
-});
+    const users = await withDatabaseErrorHandling(async () => {
+      const foundUsers = await db
+        .select()
+        .from(UserTable)
+        .where(eq(UserTable.role, role));
 
+      // Remove password from each user object
+      return foundUsers.map(({ password, ...user }) => user);
+    }, "getUserbyrole");
 
-export const addParkingIncharge = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-     if((req as any).user.role === "admin"){
-        const user = await db.insert(UserTable).values({...req.body, role : "parkingincharge"});
-        return res.status(200).json(new ApiResponse(200, user, "Parking incharge added successfully"));
-     }
-     else{
-        throw new ApiError(403, "You are not authorized to add parking incharge");
-     }
-    }
-    catch(error){
-        console.error('Error adding parking incharge:', error);
-        throw new ApiError(500, "Failed to add parking incharge");
-    }
-});
+    return sendList(res, users, users.length, "Users fetched successfully");
+  }
+);
 
-export const getusersbyvendor = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-        if((req as any).user && (req as any).user.role === "admin" || (req as any).user.role === "parkingincharge"){
-        const users = await db.select().from(UserTable).where(eq(UserTable.role, "vendor"));
-        return res.status(200).json(new ApiResponse(200, users, "Users fetched successfully"));
+export const addParkingIncharge = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can add parking incharge");
     }
-    else{
-        throw new ApiError(403, "You are not authorized to fetch users by vendor");
-    }
-    }
-    catch(error){
-        console.error('Error fetching users by vendor:', error);
-        throw new ApiError(500, "Failed to fetch users by vendor");
-    }
-});
 
-export const addvendor = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-     
-      
-        const user = await db.insert(UserTable).values(req.body);
-        return res.status(200).json(new ApiResponse(200, user, "Vendor added successfully"));
-    }
-    catch(error){
-        console.error('Error adding vendor:', error);
-        throw new ApiError(500, "Failed to add vendor");
-    }
-});
+    const user = await withDatabaseErrorHandling(async () => {
+      const newUser = await db
+        .insert(UserTable)
+        .values({ ...req.body, role: "parkingincharge" })
+        .returning();
 
-export const getParkingInchargeByNumber = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-        if((req as any).user.role === "admin" ){
-            const user = await db.select().from(UserTable).where(and(eq(UserTable.number, req.body.number), eq(UserTable.role, "parkingincharge")));
-            return res.status(200).json(new ApiResponse(200, user, "Parking incharge fetched successfully"));
-        }
-        else{
-            throw new ApiError(403, "You are not authorized to fetch parking incharge by number");
-        }
-    }
-    catch(error){
-        console.error('Error fetching parking incharge by number:', error);
-        throw new ApiError(500, "Failed to fetch parking incharge by number");
-    }
-});
+      // Remove password from user object
+      const { password, ...userWithoutPassword } = newUser[0];
+      return userWithoutPassword;
+    }, "addParkingIncharge");
 
-export const assignParkingIncharge = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-        if((req as any).user.role === "admin" ){
-            const user = await db.update(UserTable).set({role: "parkingincharge", parkingid: req.body.parkingid}).where(eq(UserTable.id, req.body.id)).returning();
-            return res.status(200).json(new ApiResponse(200, user, "Parking incharge assigned successfully"));
-        }
-        else{
-            throw new ApiError(403, "You are not authorized to assign parking incharge");
-        }
-    }
-    catch(error){
-        console.error('Error assigning parking incharge:', error);
-        throw new ApiError(500, "Failed to assign parking incharge");
-    }
-});
+    return sendSuccess(res, user, "Parking incharge added successfully");
+  }
+);
 
-export const getParkingInchargeByParkingId = asyncHandler(async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try{
-        if((req as any).user.role === "admin" ){
-            const user = await db.select().from(UserTable).where(eq(UserTable.parkingid, Number(req.params.parkingid)));
-            return res.status(200).json(new ApiResponse(200, user, "Parking incharge fetched successfully"));
-        }
-        else{
-            throw new ApiError(403, "You are not authorized to fetch parking incharge by parking id");
-        }
+export const getusersbyvendor = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "parkingincharge")
+    ) {
+      throw ApiError.forbidden(
+        "You are not authorized to fetch users by vendor"
+      );
     }
-    catch(error){
-        console.error('Error fetching parking incharge by parking id:', error);
-        throw new ApiError(500, "Failed to fetch parking incharge by parking id");
+
+    const users = await withDatabaseErrorHandling(async () => {
+      const foundUsers = await db
+        .select()
+        .from(UserTable)
+        .where(eq(UserTable.role, "vendor"));
+
+      // Remove password from each user object
+      return foundUsers.map(({ password, ...user }) => user);
+    }, "getusersbyvendor");
+
+    return sendList(
+      res,
+      users,
+      users.length,
+      "Vendor users fetched successfully"
+    );
+  }
+);
+
+export const addvendor = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    const user = await withDatabaseErrorHandling(async () => {
+      const newUser = await db.insert(UserTable).values(req.body).returning();
+
+      // Remove password from user object
+      const { password, ...userWithoutPassword } = newUser[0];
+      return userWithoutPassword;
+    }, "addvendor");
+
+    return sendSuccess(res, user, "Vendor added successfully");
+  }
+);
+
+export const getParkingInchargeByNumber = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden(
+        "You are not authorized to fetch parking incharge by number"
+      );
     }
-});
+
+    const { number } = req.body;
+
+    if (!number) {
+      throw ApiError.badRequest("Phone number is required");
+    }
+
+    const users = await withDatabaseErrorHandling(async () => {
+      const foundUsers = await db
+        .select()
+        .from(UserTable)
+        .where(
+          and(
+            eq(UserTable.number, number),
+            eq(UserTable.role, "parkingincharge")
+          )
+        );
+
+      // Remove password from each user object
+      return foundUsers.map(({ password, ...user }) => user);
+    }, "getParkingInchargeByNumber");
+
+    return sendList(
+      res,
+      users,
+      users.length,
+      "Parking incharge fetched successfully"
+    );
+  }
+);
+
+export const assignParkingIncharge = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden(
+        "You are not authorized to assign parking incharge"
+      );
+    }
+
+    const { id, parkingid } = req.body;
+
+    if (!id || !parkingid) {
+      throw ApiError.badRequest("User ID and parking ID are required");
+    }
+
+    const user = await withDatabaseErrorHandling(async () => {
+      const updatedUser = await db
+        .update(UserTable)
+        .set({ role: "parkingincharge", parkingid: parkingid })
+        .where(eq(UserTable.id, id))
+        .returning();
+
+      if (!updatedUser || updatedUser.length === 0) {
+        throw ApiError.notFound("User not found");
+      }
+
+      // Remove password from user object
+      const { password, ...userWithoutPassword } = updatedUser[0];
+      return userWithoutPassword;
+    }, "assignParkingIncharge");
+
+    return sendUpdated(res, user, "Parking incharge assigned successfully");
+  }
+);
+
+export const getParkingInchargeByParkingId = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden(
+        "You are not authorized to fetch parking incharge by parking id"
+      );
+    }
+
+    const { parkingid } = req.params;
+
+    if (!parkingid || !/^[0-9]+$/.test(parkingid)) {
+      throw ApiError.badRequest("Invalid parking ID");
+    }
+
+    const users = await withDatabaseErrorHandling(async () => {
+      const foundUsers = await db
+        .select()
+        .from(UserTable)
+        .where(eq(UserTable.parkingid, Number(parkingid)));
+
+      // Remove password from each user object
+      return foundUsers.map(({ password, ...user }) => user);
+    }, "getParkingInchargeByParkingId");
+
+    return sendList(
+      res,
+      users,
+      users.length,
+      "Parking incharge fetched successfully"
+    );
+  }
+);

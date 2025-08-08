@@ -1,48 +1,58 @@
 import { asyncHandler } from "../utils/asyncHandler";
 import { db } from "../../drizzle/db";
 import { parkingTable } from "./parkingmodel";
-import { ApiResponse } from "../utils/apiResponse";
 import { ApiError } from "../utils/apiError";
 import { Request, Response } from "express";
 import { and, eq, sql, like } from "drizzle-orm";
+import {
+  sendSuccess,
+  sendItem,
+  sendList,
+  sendCreated,
+  sendUpdated,
+  sendDeleted,
+} from "../utils/responseHandler";
+import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 
 export const getParking = asyncHandler(async (req: Request, res: Response) => {
-  try {
-    const parking = await db.select().from(parkingTable);
-    return res
-      .status(200)
-      .json(new ApiResponse(200, parking, "Parking fetched successfully"));
-  } catch (error) {
-    console.log(error);
-    throw new ApiError(500, "Failed to fetch parking");
-  }
+  const parking = await withDatabaseErrorHandling(async () => {
+    return await db.select().from(parkingTable);
+  }, "getParking");
+
+  return sendList(res, parking, parking.length, "Parking fetched successfully");
 });
 
 export const getParkingByFilter = asyncHandler(
   async (req: Request, res: Response) => {
-    const { state, pincode, name, city, locality, country } = req.body;
+    const { state, pincode, name, city, locality, country } = req.query;
 
-    try {
+    const parking = await withDatabaseErrorHandling(async () => {
       // Build dynamic where conditions based on provided filters
       const conditions = [];
 
       if (state) {
-        conditions.push(eq(parkingTable.state, state));
+        conditions.push(eq(parkingTable.state, state as string));
       }
 
       if (pincode) {
-        conditions.push(eq(parkingTable.pincode, pincode));
+        conditions.push(eq(parkingTable.pincode, parseInt(pincode as string)));
       }
 
       if (name) {
         conditions.push(
-          like(sql`lower(${parkingTable.name})`, `%${name.toLowerCase()}%`)
+          like(
+            sql`lower(${parkingTable.name})`,
+            `%${(name as string).toLowerCase()}%`
+          )
         );
       }
 
       if (city) {
         conditions.push(
-          like(sql`lower(${parkingTable.city})`, `%${city.toLowerCase()}%`)
+          like(
+            sql`lower(${parkingTable.city})`,
+            `%${(city as string).toLowerCase()}%`
+          )
         );
       }
 
@@ -50,7 +60,7 @@ export const getParkingByFilter = asyncHandler(
         conditions.push(
           like(
             sql`lower(${parkingTable.locality})`,
-            `%${locality.toLowerCase()}%`
+            `%${(locality as string).toLowerCase()}%`
           )
         );
       }
@@ -59,72 +69,64 @@ export const getParkingByFilter = asyncHandler(
         conditions.push(
           like(
             sql`lower(${parkingTable.country})`,
-            `%${country.toLowerCase()}%`
+            `%${(country as string).toLowerCase()}%`
           )
         );
       }
 
       // If no filters provided, return all parking
       if (conditions.length === 0) {
-        const parking = await db.select().from(parkingTable);
-        return res
-          .status(200)
-          .json(
-            new ApiResponse(200, parking, "All parking fetched successfully")
-          );
+        return await db.select().from(parkingTable);
       }
 
       // Apply filters using AND condition
-      const parking = await db
+      return await db
         .select()
         .from(parkingTable)
         .where(and(...conditions));
+    }, "getParkingByFilter");
 
-      if (parking.length === 0) {
-        return res
-          .status(200)
-          .json(
-            new ApiResponse(
-              200,
-              [],
-              "No parking found with the specified filters"
-            )
-          );
-      }
-
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(200, parking, "Filtered parking fetched successfully")
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch filtered parking");
+    if (parking.length === 0) {
+      return sendList(
+        res,
+        [],
+        0,
+        "No parking found with the specified filters"
+      );
     }
+
+    return sendList(
+      res,
+      parking,
+      parking.length,
+      "Filtered parking fetched successfully"
+    );
   }
 );
 
 export const getNearByParking = asyncHandler(
   async (req: Request, res: Response) => {
-    const { lat, lng, radius = 500 } = req.body; // radius in kilometers, default 500km
+    // Support both GET (query params) and POST (body)
+    const {
+      lat,
+      lng,
+      radius = 500,
+    } = req.method === "GET" ? req.query : req.body;
 
-    try {
-      // Validate input coordinates
-      if (!lat || !lng) {
-        throw new ApiError(400, "Latitude and longitude are required");
-      }
+    // Validate input coordinates
+    if (!lat || !lng) {
+      throw ApiError.badRequest("Latitude and longitude are required");
+    }
 
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        throw new ApiError(400, "Invalid coordinates provided");
-      }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw ApiError.badRequest("Invalid coordinates provided");
+    }
 
+    const parking = await withDatabaseErrorHandling(async () => {
       // Haversine formula to calculate distance between two points on Earth
       // Distance = 2 * R * asin(sqrt(sin²(Δφ/2) + cos(φ1) * cos(φ2) * sin²(Δλ/2)))
       // Where R = Earth's radius (6371 km)
-      const parking = await db
+      return await db
         .select({
           id: parkingTable.id,
           name: parkingTable.name,
@@ -163,33 +165,30 @@ export const getNearByParking = asyncHandler(
             `
         )
         .orderBy(sql`distance`);
+    }, "getNearByParking");
 
-      if (parking.length === 0) {
-        return res
-          .status(200)
-          .json(new ApiResponse(200, [], "No parking found"));
-      }
-
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(200, parking, "Nearby parking fetched successfully")
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch nearby parking");
+    if (parking.length === 0) {
+      return sendList(res, [], 0, "No parking found");
     }
+
+    return sendList(
+      res,
+      parking,
+      parking.length,
+      "Nearby parking fetched successfully"
+    );
   }
 );
 
 export const getParkingById = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
+    const { id } = req.params;
 
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
       // First get the parking details
       const parking = await db
         .select()
@@ -197,9 +196,7 @@ export const getParkingById = asyncHandler(
         .where(eq(parkingTable.id, parseInt(id)));
 
       if (parking.length === 0) {
-        return res
-          .status(200)
-          .json(new ApiResponse(200, [], "No parking found"));
+        throw ApiError.notFound("Parking not found");
       }
 
       // Import carModel for the query
@@ -231,25 +228,15 @@ export const getParkingById = asyncHandler(
         .where(eq(carModel.parkingid, parseInt(id)));
 
       // Combine parking details with cars
-      const result = {
+      return {
         parking: parking[0],
         cars: cars,
         totalCars: cars.length,
         availableCars: cars.filter((car) => car.isavailable).length,
       };
+    }, "getParkingById");
 
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(200, result, "Parking with cars fetched successfully")
-        );
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch parking");
-    }
+    return sendItem(res, result, "Parking with cars fetched successfully");
   }
 );
 
@@ -257,195 +244,186 @@ export const getParkingById = asyncHandler(
 
 export const createParking = asyncHandler(
   async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try {
-      if (
-        req.user &&
-        (req.user.role === "admin" || req.user.role === "parkingincharge")
-      ) {
-        // Validate that req.body exists and has required fields
-        if (!req.body || Object.keys(req.body).length === 0) {
-          throw new ApiError(400, "Request body is required");
-        }
-
-        const parking = await db
-          .insert(parkingTable)
-          .values(req.body)
-          .returning();
-
-        return res
-          .status(200)
-          .json(new ApiResponse(200, parking, "Parking added successfully"));
-      } else {
-        throw new ApiError(403, "You are not authorized to add parking");
-      }
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to add parking");
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "parkingincharge")
+    ) {
+      throw ApiError.forbidden("You are not authorized to add parking");
     }
+
+    // Validate that req.body exists and has required fields
+    if (!req.body || Object.keys(req.body).length === 0) {
+      throw ApiError.badRequest("Request body is required");
+    }
+
+    const parking = await withDatabaseErrorHandling(async () => {
+      const newParking = await db
+        .insert(parkingTable)
+        .values(req.body)
+        .returning();
+
+      return newParking[0];
+    }, "createParking");
+
+    return sendCreated(res, parking, "Parking added successfully");
   }
 );
 
 export const updateParking = asyncHandler(
   async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try {
-      if (
-        req.user &&
-        (req.user.role === "admin" || req.user.role === "parkingincharge")
-      ) {
-        const { id } = req.params;
-        const parking = await db
-          .update(parkingTable)
-          .set(req.body)
-          .where(eq(parkingTable.id, parseInt(id)))
-          .returning();
-
-        return res
-          .status(200)
-          .json(new ApiResponse(200, parking, "Parking updated successfully"));
-      } else {
-        throw new ApiError(403, "You are not authorized to update parking");
-      }
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to update parking");
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "parkingincharge")
+    ) {
+      throw ApiError.forbidden("You are not authorized to update parking");
     }
+
+    const { id } = req.params;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
+    }
+
+    const parking = await withDatabaseErrorHandling(async () => {
+      const updatedParking = await db
+        .update(parkingTable)
+        .set(req.body)
+        .where(eq(parkingTable.id, parseInt(id)))
+        .returning();
+
+      if (!updatedParking || updatedParking.length === 0) {
+        throw ApiError.notFound("Parking not found");
+      }
+
+      return updatedParking[0];
+    }, "updateParking");
+
+    return sendUpdated(res, parking, "Parking updated successfully");
   }
 );
 
 export const deleteParking = asyncHandler(
   async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try {
-      if (
-        req.user &&
-        (req.user.role === "admin" || req.user.role === "parkingincharge")
-      ) {
-        const { id } = req.params;
-        const parking = await db
-          .delete(parkingTable)
-          .where(eq(parkingTable.id, parseInt(id)));
-
-        return res
-          .status(200)
-          .json(new ApiResponse(200, parking, "Parking deleted successfully"));
-      } else {
-        throw new ApiError(403, "You are not authorized to delete parking");
-      }
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to delete parking");
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "parkingincharge")
+    ) {
+      throw ApiError.forbidden("You are not authorized to delete parking");
     }
+
+    const { id } = req.params;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
+    }
+
+    await withDatabaseErrorHandling(async () => {
+      const deletedParking = await db
+        .delete(parkingTable)
+        .where(eq(parkingTable.id, parseInt(id)))
+        .returning();
+
+      if (!deletedParking || deletedParking.length === 0) {
+        throw ApiError.notFound("Parking not found");
+      }
+    }, "deleteParking");
+
+    return sendDeleted(res, "Parking deleted successfully");
   }
 );
 
 export const getParkingByIDadmin = asyncHandler(
   async (req: Request & { user?: { role?: string } }, res: Response) => {
-    try {
-      if (
-        req.user &&
-        (req.user.role === "admin" || req.user.role === "parkingincharge")
-      ) {
-        const { id } = req.params;
-
-        // Get parking details
-        const parking = await db
-          .select()
-          .from(parkingTable)
-          .where(eq(parkingTable.id, parseInt(id)));
-
-        if (parking.length === 0) {
-          return res
-            .status(200)
-            .json(new ApiResponse(200, [], "No parking found"));
-        }
-
-        // Import required models
-        const { carModel } = await import("../car/carmodel");
-        const { UserTable } = await import("../user/usermodel");
-
-        // Get parking incharge (users with parkingincharge role assigned to this parking)
-        const parkingIncharge = await db
-          .select({
-            id: UserTable.id,
-            name: UserTable.name,
-            email: UserTable.email,
-            number: UserTable.number,
-            role: UserTable.role,
-            isverified: UserTable.isverified,
-            avatar: UserTable.avatar,
-            createdAt: UserTable.createdAt,
-            updatedAt: UserTable.updatedAt,
-          })
-          .from(UserTable)
-          .where(
-            and(
-              eq(UserTable.role, "parkingincharge"),
-              eq(UserTable.parkingid, parseInt(id))
-            )
-          );
-
-        // Get all cars in this parking location
-        const cars = await db
-          .select({
-            id: carModel.id,
-            name: carModel.name,
-            number: carModel.number,
-            price: carModel.price,
-            discountprice: carModel.discountprice,
-            color: carModel.color,
-            rcnumber: carModel.rcnumber,
-            rcimg: carModel.rcimg,
-            pollutionimg: carModel.pollutionimg,
-            insuranceimg: carModel.insuranceimg,
-            inmaintainance: carModel.inmaintainance,
-            isavailable: carModel.isavailable,
-            images: carModel.images,
-            vendorid: carModel.vendorid,
-            parkingid: carModel.parkingid,
-            status: carModel.status,
-            createdAt: carModel.createdAt,
-            updatedAt: carModel.updatedAt,
-          })
-          .from(carModel)
-          .where(eq(carModel.parkingid, parseInt(id)));
-
-        // Combine all data
-        const result = {
-          parking: parking[0],
-          parkingIncharge: parkingIncharge,
-          cars: cars,
-          totalCars: cars.length,
-          availableCars: cars.filter((car) => car.isavailable).length,
-          approvedCars: cars.filter((car) => car.status === "available").length,
-          inMaintenanceCars: cars.filter((car) => car.inmaintainance).length,
-        };
-
-        return res
-          .status(200)
-          .json(
-            new ApiResponse(
-              200,
-              result,
-              "Parking details with incharge and cars fetched successfully"
-            )
-          );
-      } else {
-        throw new ApiError(403, "You are not authorized to fetch parking");
-      }
-    } catch (error) {
-      console.log(error);
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError(500, "Failed to fetch parking");
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "parkingincharge")
+    ) {
+      throw ApiError.forbidden("You are not authorized to fetch parking");
     }
+
+    const { id } = req.params;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid parking ID");
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get parking details
+      const parking = await db
+        .select()
+        .from(parkingTable)
+        .where(eq(parkingTable.id, parseInt(id)));
+
+      if (parking.length === 0) {
+        throw ApiError.notFound("Parking not found");
+      }
+
+      // Import required models
+      const { carModel } = await import("../car/carmodel");
+      const { UserTable } = await import("../user/usermodel");
+
+      // Get parking incharge (users with parkingincharge role assigned to this parking)
+      const parkingIncharge = await db
+        .select({
+          id: UserTable.id,
+          name: UserTable.name,
+          email: UserTable.email,
+          number: UserTable.number,
+          role: UserTable.role,
+          isverified: UserTable.isverified,
+          avatar: UserTable.avatar,
+          createdAt: UserTable.createdAt,
+          updatedAt: UserTable.updatedAt,
+        })
+        .from(UserTable)
+        .where(
+          and(
+            eq(UserTable.role, "parkingincharge"),
+            eq(UserTable.parkingid, parseInt(id))
+          )
+        );
+
+      // Get all cars in this parking location
+      const cars = await db
+        .select({
+          id: carModel.id,
+          name: carModel.name,
+          number: carModel.number,
+          price: carModel.price,
+          discountprice: carModel.discountprice,
+          color: carModel.color,
+          rcnumber: carModel.rcnumber,
+          rcimg: carModel.rcimg,
+          pollutionimg: carModel.pollutionimg,
+          insuranceimg: carModel.insuranceimg,
+          inmaintainance: carModel.inmaintainance,
+          isavailable: carModel.isavailable,
+          images: carModel.images,
+          vendorid: carModel.vendorid,
+          parkingid: carModel.parkingid,
+          status: carModel.status,
+          createdAt: carModel.createdAt,
+          updatedAt: carModel.updatedAt,
+        })
+        .from(carModel)
+        .where(eq(carModel.parkingid, parseInt(id)));
+
+      // Combine all data
+      return {
+        parking: parking[0],
+        parkingIncharge: parkingIncharge,
+        cars: cars,
+        totalCars: cars.length,
+        availableCars: cars.filter((car) => car.isavailable).length,
+        approvedCars: cars.filter((car) => car.status === "available").length,
+        inMaintenanceCars: cars.filter((car) => car.inmaintainance).length,
+      };
+    }, "getParkingByIDadmin");
+
+    return sendItem(
+      res,
+      result,
+      "Parking details with incharge and cars fetched successfully"
+    );
   }
 );

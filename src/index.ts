@@ -1,6 +1,11 @@
-import express from "express";
+import express, { Application } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import compression from "compression";
+
+// Import routers
 import authRouter from "./modules/auth/authroutes";
 import userRouter from "./modules/user/userroute";
 import carRouter from "./modules/car/carroute";
@@ -11,13 +16,125 @@ import advertisementRouter from "./modules/advertisement/advertisementroutes";
 import carCatalogRouter from "./modules/car/carcatalogroutes";
 import topupRouter from "./modules/booking/topuproutes";
 
+// Import error handling utilities
+import {
+  errorHandler,
+  notFoundHandler,
+  gracefulShutdown,
+  handleUnhandledRejection,
+  handleUncaughtException,
+} from "./modules/utils/errorHandler";
+import { responseHandlerMiddleware } from "./modules/utils/responseHandler";
+
 dotenv.config();
 
-const app = express();
+const app: Application = express();
 
-app.use(cors());
-app.use(express.json());
+// Security middleware
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+  })
+);
 
+// CORS configuration
+app.use(
+  cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+      "http://localhost:3000",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  })
+);
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again later.",
+    statusCode: 429,
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/", limiter);
+
+// Compression middleware
+app.use(compression());
+
+// Body parsing middleware
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Response handler middleware
+app.use(responseHandlerMiddleware);
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+
+  // Add request ID to headers for tracking
+  req.headers["x-request-id"] = requestId;
+
+  // Log request
+  console.log(
+    `📥 [${requestId}] ${req.method} ${req.path} - ${new Date().toISOString()}`
+  );
+  console.log(`📥 [${requestId}] Headers:`, {
+    "user-agent": req.get("User-Agent"),
+    "content-type": req.get("Content-Type"),
+    authorization: req.get("Authorization") ? "Bearer ***" : "none",
+  });
+
+  // Add error handling for response
+  res.on("error", (error) => {
+    console.error(`❌ [${requestId}] Response error:`, error);
+  });
+
+  // Log response
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    const status = res.statusCode;
+    const statusEmoji =
+      status >= 200 && status < 300
+        ? "✅"
+        : status >= 400 && status < 500
+        ? "⚠️"
+        : "❌";
+
+    console.log(
+      `${statusEmoji} [${requestId}] ${req.method} ${req.path} - ${status} (${duration}ms)`
+    );
+  });
+
+  next();
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Server is healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "development",
+  });
+});
+
+// API routes
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/cars", carRouter);
@@ -28,8 +145,30 @@ app.use("/api/v1/advertisements", advertisementRouter);
 app.use("/api/v1/car-catalog", carCatalogRouter);
 app.use("/api/v1/topups", topupRouter);
 
+// 404 handler for undefined routes
+app.use(notFoundHandler);
+
+// Global error handler (must be last)
+app.use(errorHandler);
+
 const PORT = process.env.PORT || 5500;
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
 });
+
+// Graceful shutdown handlers
+process.on("SIGTERM", gracefulShutdown(server));
+process.on("SIGINT", gracefulShutdown(server));
+
+// Unhandled rejection handler
+process.on("unhandledRejection", handleUnhandledRejection);
+
+// Uncaught exception handler
+process.on("uncaughtException", handleUncaughtException);
+
+// Export for testing
+export default app;

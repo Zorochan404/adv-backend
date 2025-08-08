@@ -133,9 +133,6 @@ export const requireRole = (allowedRoles: string[]) => {
   return asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        // First verify JWT
-        await verifyJWT(req, res, next);
-
         const user = (req as any).user;
 
         if (!user || !allowedRoles.includes(user.role)) {
