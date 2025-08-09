@@ -12,11 +12,13 @@ import {
   getParkingInchargeByNumber,
   assignParkingIncharge,
   getParkingInchargeByParkingId,
+  updatePassword,
 } from "./usercontroller";
 import {
   verifyJWT,
   requireAdmin,
   requireOwnerOrAdmin,
+  requireUser,
 } from "../middleware/auth";
 import {
   validateRequest,
@@ -31,6 +33,7 @@ import {
   parkingInchargeAssignSchema,
   parkingInchargeByNumberSchema,
   paginationQuerySchema,
+  passwordUpdateSchema,
 } from "../utils/validation";
 
 const router: Router = express.Router();
@@ -99,6 +102,15 @@ router.delete(
   requireOwnerOrAdmin,
   validateRequest(idParamSchema),
   deleteUser
+);
+
+// Password update route (for all authenticated users)
+router.put(
+  "/update-password",
+  verifyJWT,
+  requireUser,
+  validateRequest(passwordUpdateSchema),
+  updatePassword
 );
 
 export default router;

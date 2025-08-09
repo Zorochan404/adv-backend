@@ -1,6 +1,6 @@
 {
-  "id": "6f1b920a-80c7-4c57-b7d3-1f833a4b5db5",
-  "prevId": "aebff834-ddd2-4d75-9b7a-e5d0732bef18",
+  "id": "7462a236-9d00-400e-be36-5b0606633369",
+  "prevId": "5c8f2d21-af96-446f-9d57-ee36bdf57e99",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -189,6 +189,44 @@
           "primaryKey": false,
           "notNull": true
         },
+        "pickup_date": {
+          "name": "pickup_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actual_pickup_date": {
+          "name": "actual_pickup_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actual_dropoff_date": {
+          "name": "actual_dropoff_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "original_pickup_date": {
+          "name": "original_pickup_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reschedule_count": {
+          "name": "reschedule_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "max_reschedule_count": {
+          "name": "max_reschedule_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 3
+        },
         "base_price": {
           "name": "base_price",
           "type": "double precision",
@@ -229,6 +267,33 @@
         "extension_time": {
           "name": "extension_time",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "late_fees": {
+          "name": "late_fees",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "return_condition": {
+          "name": "return_condition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'good'"
+        },
+        "return_images": {
+          "name": "return_images",
+          "type": "varchar(500)[]",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
+        },
+        "return_comments": {
+          "name": "return_comments",
+          "type": "varchar(500)",
           "primaryKey": false,
           "notNull": false
         },
@@ -288,10 +353,10 @@
         },
         "tools": {
           "name": "tools",
-          "type": "varchar(500)[]",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false,
-          "default": "'{}'"
+          "default": "'[]'::jsonb"
         },
         "pic_approved": {
           "name": "pic_approved",
@@ -315,6 +380,37 @@
         "pic_comments": {
           "name": "pic_comments",
           "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_code": {
+          "name": "otp_code",
+          "type": "varchar(4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_expires_at": {
+          "name": "otp_expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_verified": {
+          "name": "otp_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "otp_verified_at": {
+          "name": "otp_verified_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_verified_by": {
+          "name": "otp_verified_by",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -412,6 +508,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "pic_approved_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "bookings_otp_verified_by_users_id_fk": {
+          "name": "bookings_otp_verified_by_users_id_fk",
+          "tableFrom": "bookings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "otp_verified_by"
           ],
           "columnsTo": [
             "id"

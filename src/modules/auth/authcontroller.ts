@@ -8,17 +8,14 @@ import { sendSuccess, sendCreated } from "../utils/responseHandler";
 import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { sql } from "drizzle-orm";
 
 export const loginuser = asyncHandler(async (req: Request, res: Response) => {
-  const { number, otp } = req.body;
+  const { number, otp, password } = req.body;
 
-  // Validate required fields using the new error system
+  // Validate required fields
   if (!number) {
     throw ApiError.badRequest("Phone number is required");
-  }
-
-  if (!otp) {
-    throw ApiError.badRequest("OTP is required");
   }
 
   // Validate phone number format
@@ -26,66 +23,100 @@ export const loginuser = asyncHandler(async (req: Request, res: Response) => {
     throw ApiError.badRequest("Invalid phone number format. Must be 10 digits");
   }
 
-  // Validate OTP format
-  if (!/^[0-9]{4,6}$/.test(otp)) {
-    throw ApiError.badRequest("Invalid OTP format");
+  // Check if user is trying to use password-based login or OTP-based login
+  const isPasswordLogin = password && !otp;
+  const isOtpLogin = otp && !password;
+
+  if (!isPasswordLogin && !isOtpLogin) {
+    throw ApiError.badRequest("Either password or OTP is required");
   }
 
   const result = await withDatabaseErrorHandling(async () => {
     const existingUsers = await db
       .select()
       .from(UserTable)
-      .where(
-        and(
-          eq(UserTable.number, number),
-          or(eq(UserTable.role, "user"), eq(UserTable.role, "vendor"))
-        )
-      );
+      .where(eq(UserTable.number, number));
 
     if (existingUsers.length === 0) {
-      // User doesn't exist, create new user
-      const newUser = await db
-        .insert(UserTable)
-        .values({
-          number: number,
-          role: "user",
-        })
-        .returning();
+      // User doesn't exist, create new user (only for OTP-based login)
+      if (isOtpLogin) {
+        const newUser = await db
+          .insert(UserTable)
+          .values({
+            number: number,
+            role: "user",
+            password: otp, // Store OTP as password for new users
+          })
+          .returning();
 
-      // Generate access token for new user
-      const accessToken = jwt.sign(
-        {
-          _id: newUser[0].id,
-          number: newUser[0].number,
-          role: newUser[0].role,
-        },
-        process.env.ACCESS_TOKEN_SECRET as string,
-        {
-          expiresIn: "1d",
-        }
-      );
+        // Generate access token for new user
+        const accessToken = jwt.sign(
+          {
+            _id: newUser[0].id,
+            number: newUser[0].number,
+            role: newUser[0].role,
+          },
+          process.env.ACCESS_TOKEN_SECRET as string,
+          {
+            expiresIn: "1d",
+          }
+        );
 
-      // Exclude password from user object before sending response
-      const { password: _password, ...userWithoutPassword } = newUser[0];
+        // Exclude password from user object before sending response
+        const { password: _password, ...userWithoutPassword } = newUser[0];
 
-      return {
-        user: userWithoutPassword,
-        accessToken,
-        isNewUser: true,
-      };
+        return {
+          user: userWithoutPassword,
+          accessToken,
+          isNewUser: true,
+        };
+      } else {
+        throw ApiError.unauthorized("User not found");
+      }
     }
 
-    // User exists, check OTP
+    // User exists, check authentication method
     const user = existingUsers[0];
 
-    if (user.role === "admin") {
-      throw ApiError.forbidden("Admin cannot login as user");
+    if (isPasswordLogin) {
+      // Password-based login (for admin, PIC, vendor, user with hashed passwords)
+      if (!user.password) {
+        throw ApiError.unauthorized("User does not have a password set");
+      }
+
+      // Check if password is hashed (starts with $2b$)
+      if (user.password.startsWith("$2b$")) {
+        // Hashed password - use bcrypt
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+          throw ApiError.unauthorized("Invalid password");
+        }
+      } else {
+        // Plain text password - direct comparison
+        if (user.password !== password) {
+          throw ApiError.unauthorized("Invalid password");
+        }
+      }
+    } else {
+      // OTP-based login (for users and vendors)
+      if (user.role === "admin" || user.role === "parkingincharge") {
+        throw ApiError.forbidden(
+          "Admin and PIC users must use password-based login"
+        );
+      }
+
+      // Check if user has a password/OTP
+      if (!user.password) {
+        throw ApiError.unauthorized("User does not have OTP set");
+      }
+
+      // For OTP login, check if password matches OTP
+      if (user.password !== otp) {
+        throw ApiError.unauthorized("Invalid OTP");
+      }
     }
 
-    if (user.password !== otp) {
-      throw ApiError.unauthorized("Invalid OTP");
-    }
-
+    // Generate access token
     const accessToken = jwt.sign(
       {
         _id: user.id,
@@ -112,7 +143,7 @@ export const loginuser = asyncHandler(async (req: Request, res: Response) => {
     ? "User created and logged in successfully"
     : "User login successful";
 
-  return sendSuccess(res, result, message, result.isNewUser ? 201 : 200);
+  return sendSuccess(res, result, message);
 });
 
 export const registerAdmin = asyncHandler(
@@ -282,3 +313,50 @@ export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
 
   return sendSuccess(res, result, "Admin login successful");
 });
+
+// Migration function to hash existing plain text passwords
+export const migratePasswords = asyncHandler(
+  async (req: Request, res: Response) => {
+    // This should only be run by admins
+    const currentUser = (req as any).user;
+    if (!currentUser || currentUser.role !== "admin") {
+      throw ApiError.forbidden("Only admins can run password migration");
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get all users with plain text passwords (not starting with $2b$)
+      const usersWithPlainPasswords = await db
+        .select()
+        .from(UserTable)
+        .where(
+          sql`${UserTable.password} NOT LIKE '$2b$%' AND ${UserTable.password} IS NOT NULL`
+        );
+
+      let migratedCount = 0;
+      const saltRounds = 12;
+
+      for (const user of usersWithPlainPasswords) {
+        if (user.password && !user.password.startsWith("$2b$")) {
+          // Hash the plain text password
+          const hashedPassword = await bcrypt.hash(user.password, saltRounds);
+
+          // Update the user with hashed password
+          await db
+            .update(UserTable)
+            .set({ password: hashedPassword })
+            .where(eq(UserTable.id, user.id));
+
+          migratedCount++;
+        }
+      }
+
+      return {
+        totalUsers: usersWithPlainPasswords.length,
+        migratedCount,
+        message: `Successfully migrated ${migratedCount} passwords to hashed format`,
+      };
+    }, "migratePasswords");
+
+    return sendSuccess(res, result, "Password migration completed");
+  }
+);

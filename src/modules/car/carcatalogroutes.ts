@@ -7,6 +7,7 @@ import {
   deleteCarCatalog,
   getActiveCarCatalog,
   seedCarCatalog,
+  updateCarCatalogLateFees,
 } from "./carcatalogcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
 import {
@@ -54,5 +55,11 @@ router.delete(
   deleteCarCatalog
 );
 router.post("/seed", verifyJWT, requireAdmin, seedCarCatalog);
+router.post(
+  "/update-late-fees",
+  verifyJWT,
+  requireAdmin,
+  updateCarCatalogLateFees
+);
 
 export default router;

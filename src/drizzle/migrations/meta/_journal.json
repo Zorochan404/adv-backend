@@ -5,22 +5,29 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1754343235848,
-      "tag": "0000_legal_arclight",
+      "when": 1754669529246,
+      "tag": "0000_add_missing_booking_fields",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1754400867225,
-      "tag": "0001_tough_loki",
+      "when": 1754720624542,
+      "tag": "0001_wealthy_captain_stacy",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1754421885791,
-      "tag": "0002_dusty_pixie",
+      "when": 1754730294966,
+      "tag": "0002_clever_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1754731584672,
+      "tag": "0003_watery_namorita",
       "breakpoints": true
     }
   ]

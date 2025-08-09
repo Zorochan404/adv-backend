@@ -14,6 +14,16 @@ import {
 } from "../utils/responseHandler";
 import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 import { sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+
+// Extend the Request interface to include 'user' property
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: number;
+    role: string;
+    // add other user properties if needed
+  };
+}
 
 export const getUser = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -48,6 +58,12 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   // Validate ID
   if (!id || !/^[0-9]+$/.test(id)) {
     throw ApiError.badRequest("Invalid user ID");
+  }
+
+  // Check if user is trying to set isverified to true (only admins can do this)
+  const currentUser = (req as any).user;
+  if (updateData.isverified === true && currentUser.role !== "admin") {
+    throw ApiError.forbidden("Only admins can verify user accounts");
   }
 
   const user = await withDatabaseErrorHandling(async () => {
@@ -495,6 +511,75 @@ export const getParkingInchargeByParkingId = asyncHandler(
       users,
       users.length,
       "Parking incharge fetched successfully"
+    );
+  }
+);
+
+// Update password function
+export const updatePassword = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const userId = req.user.id;
+
+    // Validate that new password and confirm password match
+    if (newPassword !== confirmPassword) {
+      throw ApiError.badRequest(
+        "New password and confirmation password do not match"
+      );
+    }
+
+    // Get current user
+    const currentUser = await db
+      .select()
+      .from(UserTable)
+      .where(eq(UserTable.id, userId))
+      .limit(1);
+
+    if (!currentUser || currentUser.length === 0) {
+      throw ApiError.notFound("User not found");
+    }
+
+    const user = currentUser[0];
+
+    // Check if user has a password set
+    if (!user.password) {
+      throw ApiError.badRequest("User does not have a password set");
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.password
+    );
+    if (!isCurrentPasswordValid) {
+      throw ApiError.unauthorized("Current password is incorrect");
+    }
+
+    // Hash the new password
+    const saltRounds = 12;
+    const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update the password
+    const updatedUser = await db
+      .update(UserTable)
+      .set({
+        password: hashedNewPassword,
+        updatedAt: new Date(),
+      })
+      .where(eq(UserTable.id, userId))
+      .returning();
+
+    if (!updatedUser || updatedUser.length === 0) {
+      throw ApiError.internal("Failed to update password");
+    }
+
+    // Remove password from response
+    const { password, ...userWithoutPassword } = updatedUser[0];
+
+    return sendUpdated(
+      res,
+      userWithoutPassword,
+      "Password updated successfully"
     );
   }
 );

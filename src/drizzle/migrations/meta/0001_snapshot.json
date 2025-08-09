@@ -1,6 +1,6 @@
 {
-  "id": "fd8d91da-17c7-4a4b-8541-be3a42b0a07b",
-  "prevId": "aebff834-ddd2-4d75-9b7a-e5d0732bef18",
+  "id": "5c8f2d21-af96-446f-9d57-ee36bdf57e99",
+  "prevId": "af9e6564-955d-469d-a008-4f26aeb10d96",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -189,39 +189,77 @@
           "primaryKey": false,
           "notNull": true
         },
-        "price": {
-          "name": "price",
-          "type": "double precision",
+        "pickup_date": {
+          "name": "pickup_date",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
-        "insurance_price": {
-          "name": "insurance_price",
-          "type": "double precision",
+        "actual_pickup_date": {
+          "name": "actual_pickup_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "original_pickup_date": {
+          "name": "original_pickup_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reschedule_count": {
+          "name": "reschedule_count",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "default": 0
+        },
+        "max_reschedule_count": {
+          "name": "max_reschedule_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 3
+        },
+        "base_price": {
+          "name": "base_price",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "advance_amount": {
+          "name": "advance_amount",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "remaining_amount": {
+          "name": "remaining_amount",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
         },
         "total_price": {
           "name": "total_price",
           "type": "double precision",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "extension_price": {
           "name": "extension_price",
           "type": "double precision",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": 0
         },
-        "extention_till": {
-          "name": "extention_till",
+        "extension_till": {
+          "name": "extension_till",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
-        "extention_time": {
-          "name": "extention_time",
+        "extension_time": {
+          "name": "extension_time",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -233,29 +271,126 @@
           "notNull": false,
           "default": "'pending'"
         },
-        "tool": {
-          "name": "tool",
-          "type": "varchar(500)[]",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'{}'"
-        },
-        "trip_starting_car_images": {
-          "name": "trip_starting_car_images",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "payment_status": {
-          "name": "payment_status",
+        "confirmation_status": {
+          "name": "confirmation_status",
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false,
           "default": "'pending'"
         },
-        "payment_reference_id": {
-          "name": "payment_reference_id",
+        "advance_payment_status": {
+          "name": "advance_payment_status",
           "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'pending'"
+        },
+        "final_payment_status": {
+          "name": "final_payment_status",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'pending'"
+        },
+        "advance_payment_reference_id": {
+          "name": "advance_payment_reference_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "final_payment_reference_id": {
+          "name": "final_payment_reference_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "car_condition_images": {
+          "name": "car_condition_images",
+          "type": "varchar(500)[]",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
+        },
+        "tool_images": {
+          "name": "tool_images",
+          "type": "varchar(500)[]",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
+        },
+        "tools": {
+          "name": "tools",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "pic_approved": {
+          "name": "pic_approved",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "pic_approved_at": {
+          "name": "pic_approved_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pic_approved_by": {
+          "name": "pic_approved_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pic_comments": {
+          "name": "pic_comments",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_code": {
+          "name": "otp_code",
+          "type": "varchar(4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_expires_at": {
+          "name": "otp_expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_verified": {
+          "name": "otp_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "otp_verified_at": {
+          "name": "otp_verified_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "otp_verified_by": {
+          "name": "otp_verified_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_confirmed": {
+          "name": "user_confirmed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "user_confirmed_at": {
+          "name": "user_confirmed_at",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
@@ -271,8 +406,35 @@
           "primaryKey": false,
           "notNull": false
         },
+        "delivery_type": {
+          "name": "delivery_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'pickup'"
+        },
+        "delivery_address": {
+          "name": "delivery_address",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_charges": {
+          "name": "delivery_charges",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
         "created_at": {
           "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
@@ -307,6 +469,32 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+        "bookings_pic_approved_by_users_id_fk": {
+          "name": "bookings_pic_approved_by_users_id_fk",
+          "tableFrom": "bookings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "pic_approved_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "bookings_otp_verified_by_users_id_fk": {
+          "name": "bookings_otp_verified_by_users_id_fk",
+          "tableFrom": "bookings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "otp_verified_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "bookings_pickup_parking_id_parkings_id_fk": {
           "name": "bookings_pickup_parking_id_parkings_id_fk",
           "tableFrom": "bookings",
@@ -331,6 +519,199 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.booking_topups": {
+      "name": "booking_topups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "booking_id": {
+          "name": "booking_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topup_id": {
+          "name": "topup_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_end_date": {
+          "name": "original_end_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "new_end_date": {
+          "name": "new_end_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_status": {
+          "name": "payment_status",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'pending'"
+        },
+        "payment_reference_id": {
+          "name": "payment_reference_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "booking_topups_booking_id_bookings_id_fk": {
+          "name": "booking_topups_booking_id_bookings_id_fk",
+          "tableFrom": "booking_topups",
+          "tableTo": "bookings",
+          "columnsFrom": [
+            "booking_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "booking_topups_topup_id_topups_id_fk": {
+          "name": "booking_topups_topup_id_topups_id_fk",
+          "tableFrom": "booking_topups",
+          "tableTo": "topups",
+          "columnsFrom": [
+            "topup_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.topups": {
+      "name": "topups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration": {
+          "name": "duration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "price": {
+          "name": "price",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'extension'"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "topups_created_by_users_id_fk": {
+          "name": "topups_created_by_users_id_fk",
+          "tableFrom": "topups",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -758,6 +1139,180 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pic_verifications": {
+      "name": "pic_verifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "car_id": {
+          "name": "car_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parking_id": {
+          "name": "parking_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pic_id": {
+          "name": "pic_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'pending'"
+        },
+        "verification_type": {
+          "name": "verification_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "engine_condition": {
+          "name": "engine_condition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body_condition": {
+          "name": "body_condition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "interior_condition": {
+          "name": "interior_condition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tire_condition": {
+          "name": "tire_condition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rc_verified": {
+          "name": "rc_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "insurance_verified": {
+          "name": "insurance_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "pollution_verified": {
+          "name": "pollution_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "verification_images": {
+          "name": "verification_images",
+          "type": "varchar(500)[]",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
+        },
+        "pic_comments": {
+          "name": "pic_comments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vendor_feedback": {
+          "name": "vendor_feedback",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "pic_verifications_car_id_car_id_fk": {
+          "name": "pic_verifications_car_id_car_id_fk",
+          "tableFrom": "pic_verifications",
+          "tableTo": "car",
+          "columnsFrom": [
+            "car_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "pic_verifications_parking_id_parkings_id_fk": {
+          "name": "pic_verifications_parking_id_parkings_id_fk",
+          "tableFrom": "pic_verifications",
+          "tableTo": "parkings",
+          "columnsFrom": [
+            "parking_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "pic_verifications_pic_id_users_id_fk": {
+          "name": "pic_verifications_pic_id_users_id_fk",
+          "tableFrom": "pic_verifications",
+          "tableTo": "users",
+          "columnsFrom": [
+            "pic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

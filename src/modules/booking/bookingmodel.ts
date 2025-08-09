@@ -29,6 +29,14 @@ export const bookingsTable = pgTable("bookings", {
   // Booking details
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
+  pickupDate: timestamp("pickup_date"), // Specific pickup date/time
+  actualPickupDate: timestamp("actual_pickup_date"), // When user actually picked up
+  actualDropoffDate: timestamp("actual_dropoff_date"), // When user actually returned the car
+
+  // Rescheduling
+  originalPickupDate: timestamp("original_pickup_date"), // Original pickup date for rescheduling
+  rescheduleCount: integer("reschedule_count").default(0), // Number of times rescheduled
+  maxRescheduleCount: integer("max_reschedule_count").default(3), // Maximum allowed reschedules
 
   // Pricing breakdown
   basePrice: doublePrecision("base_price").notNull(),
@@ -40,6 +48,19 @@ export const bookingsTable = pgTable("bookings", {
   extensionPrice: doublePrecision("extension_price").default(0),
   extensionTill: timestamp("extension_till"),
   extensionTime: integer("extension_time"), // in hours
+
+  // Late fees
+  lateFees: doublePrecision("late_fees").default(0), // Late fees for overdue returns
+  lateFeesPaid: boolean("late_fees_paid").default(false), // Whether late fees have been paid
+  lateFeesPaymentReferenceId: varchar("late_fees_payment_reference_id", {
+    length: 100,
+  }), // Payment reference for late fees
+  lateFeesPaidAt: timestamp("late_fees_paid_at"), // When late fees were paid
+
+  // Car return details
+  returnCondition: varchar("return_condition", { length: 50 }).default("good"), // good, fair, poor
+  returnImages: varchar("return_images", { length: 500 }).array().default([]), // Array of return condition image URLs
+  returnComments: varchar("return_comments", { length: 500 }), // Comments from PIC about return condition
 
   // Booking status flow
   status: varchar("status", { length: 50 }).default("pending"), // pending, advance_paid, confirmed, active, completed, cancelled
@@ -66,13 +87,20 @@ export const bookingsTable = pgTable("bookings", {
     .array()
     .default([]), // Array of image URLs
   toolImages: varchar("tool_images", { length: 500 }).array().default([]), // Array of image URLs
-  tools: varchar("tools", { length: 500 }).array().default([]), // Array of tool names
+  tools: jsonb("tools").default([]), // Array of tool objects with name and imageUrl
 
   // PIC (Parking In Charge) verification
   picApproved: boolean("pic_approved").default(false),
   picApprovedAt: timestamp("pic_approved_at"),
   picApprovedBy: integer("pic_approved_by").references(() => UserTable.id),
   picComments: varchar("pic_comments", { length: 500 }),
+
+  // OTP Verification System
+  otpCode: varchar("otp_code", { length: 4 }), // 4-digit OTP
+  otpExpiresAt: timestamp("otp_expires_at"), // OTP expiration time
+  otpVerified: boolean("otp_verified").default(false), // Whether OTP was verified
+  otpVerifiedAt: timestamp("otp_verified_at"), // When OTP was verified
+  otpVerifiedBy: integer("otp_verified_by").references(() => UserTable.id), // Who verified the OTP
 
   // User confirmation
   userConfirmed: boolean("user_confirmed").default(false),

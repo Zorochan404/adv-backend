@@ -19,6 +19,10 @@ export const parkingIdParamSchema = z.object({
   parkingid: z.string().regex(/^[0-9]+$/, "Invalid parking ID format"),
 });
 
+export const bookingIdParamSchema = z.object({
+  bookingId: z.string().regex(/^[0-9]+$/, "Invalid booking ID format"),
+});
+
 export const paginationQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(10),
   page: z.coerce.number().min(1).default(1),
@@ -91,10 +95,27 @@ export const parkingInchargeByNumberSchema = z.object({
 });
 
 // Auth schemas
-export const loginSchema = z.object({
-  number: z.string().regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
-  otp: z.string().regex(/^[0-9]{4,6}$/, "OTP must be 4-6 digits"),
-});
+export const loginSchema = z
+  .object({
+    number: z.string().regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
+    otp: z
+      .string()
+      .regex(/^[0-9]{4,6}$/, "OTP must be 4-6 digits")
+      .optional(),
+    password: z.string().min(1, "Password is required").optional(),
+  })
+  .refine(
+    (data) => {
+      // Either otp or password must be provided, but not both
+      const hasOtp = !!data.otp;
+      const hasPassword = !!data.password;
+      return (hasOtp && !hasPassword) || (!hasOtp && hasPassword);
+    },
+    {
+      message: "Either OTP or password must be provided, but not both",
+      path: ["otp"],
+    }
+  );
 
 export const adminRegisterSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -107,6 +128,20 @@ export const adminLoginSchema = z.object({
   number: z.string().regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
   password: z.string().min(1, "Password is required"),
 });
+
+// Password update schema
+export const passwordUpdateSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z
+      .string()
+      .min(6, "New password must be at least 6 characters"),
+    confirmPassword: z.string().min(1, "Password confirmation is required"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "New password and confirmation password do not match",
+    path: ["confirmPassword"],
+  });
 
 // Car schemas
 export const carCreateSchema = z.object({
@@ -213,6 +248,11 @@ export const carCatalogCreateSchema = z.object({
   category: z
     .enum(["sedan", "hatchback", "suv", "luxury", "electric"])
     .default("sedan"),
+  lateFeeRate: z
+    .number()
+    .min(0)
+    .max(1, "Late fee rate must be between 0 and 1")
+    .default(0.1),
 });
 
 export const carCatalogUpdateSchema = carCatalogCreateSchema.partial();
@@ -278,8 +318,11 @@ export const bookingCreateSchema = z.object({
   carId: z.number().positive("Invalid car ID"),
   startDate: z.string().datetime("Invalid start date"),
   endDate: z.string().datetime("Invalid end date"),
-  pickupParkingId: z.number().positive("Invalid pickup parking ID"),
-  dropoffParkingId: z.number().positive("Invalid dropoff parking ID"),
+  pickupParkingId: z.number().positive("Invalid pickup parking ID").optional(),
+  dropoffParkingId: z
+    .number()
+    .positive("Invalid dropoff parking ID")
+    .optional(),
   deliveryType: z.enum(["pickup", "delivery"]).default("pickup"),
   deliveryAddress: z.string().optional(),
   deliveryCharges: z
@@ -314,6 +357,21 @@ export const bookingPICApprovalSchema = z.object({
   comments: z.string().optional(),
 });
 
+export const bookingOTPVerificationSchema = z.object({
+  bookingId: z.number().positive("Invalid booking ID"),
+  otp: z.string().regex(/^\d{4}$/, "OTP must be a 4-digit number"),
+});
+
+export const bookingResendOTPSchema = z.object({
+  bookingId: z.number().positive("Invalid booking ID"),
+});
+
+export const bookingRescheduleSchema = z.object({
+  newPickupDate: z.string().datetime("Invalid pickup date format"),
+  newStartDate: z.string().datetime("Invalid start date format").optional(),
+  newEndDate: z.string().datetime("Invalid end date format").optional(),
+});
+
 // Topup schemas
 export const topupCreateSchema = z.object({
   name: z.string().min(1, "Topup name is required"),
@@ -326,9 +384,49 @@ export const topupCreateSchema = z.object({
 export const topupUpdateSchema = topupCreateSchema.partial();
 
 export const topupApplySchema = z.object({
-  bookingId: z.number().positive("Invalid booking ID"),
-  topupId: z.number().positive("Invalid topup ID"),
+  bookingId: z.coerce.number().positive("Invalid booking ID"),
+  topupId: z.coerce.number().positive("Invalid topup ID"),
   paymentReferenceId: z.string().min(1, "Payment reference ID is required"),
+});
+
+export const lateFeePaymentSchema = z.object({
+  bookingId: z.coerce.number().positive("Invalid booking ID"),
+  paymentReferenceId: z.string().min(1, "Payment reference ID is required"),
+});
+
+export const earningsOverviewSchema = z.object({
+  startDate: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      // Handle various date formats
+      let date: Date;
+      if (val.includes("T")) {
+        // ISO format
+        date = new Date(val);
+      } else {
+        // Simple date format (YYYY-MM-DD)
+        date = new Date(val + "T00:00:00.000Z");
+      }
+      return isNaN(date.getTime()) ? undefined : date;
+    }),
+  endDate: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return undefined;
+      // Handle various date formats
+      let date: Date;
+      if (val.includes("T")) {
+        // ISO format
+        date = new Date(val);
+      } else {
+        // Simple date format (YYYY-MM-DD)
+        date = new Date(val + "T23:59:59.999Z");
+      }
+      return isNaN(date.getTime()) ? undefined : date;
+    }),
 });
 
 // Advertisement schemas
@@ -367,15 +465,10 @@ export const validateRequest = <T extends z.ZodSchema>(schema: T) => {
         data = { ...req.params, ...req.body };
       }
 
-      const validatedData = schema.parse(data);
+      const result = schema.safeParse(data);
 
-      // Replace request data with validated data
-      Object.assign(req, validatedData);
-
-      next();
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const errorMessages = error.issues
+      if (!result.success) {
+        const errorMessages = result.error.issues
           .map((err: z.ZodIssue) => `${err.path.join(".")}: ${err.message}`)
           .join(", ");
         const validationError = ApiError.badRequest(
@@ -394,19 +487,23 @@ export const validateRequest = <T extends z.ZodSchema>(schema: T) => {
           });
         }
       } else {
-        const genericError = ApiError.badRequest("Invalid request data");
+        // Replace request data with validated data
+        Object.assign(req, result.data);
+        next();
+      }
+    } catch (error) {
+      const genericError = ApiError.badRequest("Invalid request data");
 
-        // Check if headers have already been sent
-        if (!res.headersSent) {
-          return res.status(genericError.statusCode).json({
-            success: false,
-            message: genericError.message,
-            statusCode: genericError.statusCode,
-            timestamp: new Date(),
-            path: req.path,
-            method: req.method,
-          });
-        }
+      // Check if headers have already been sent
+      if (!res.headersSent) {
+        return res.status(genericError.statusCode).json({
+          success: false,
+          message: genericError.message,
+          statusCode: genericError.statusCode,
+          timestamp: new Date(),
+          path: req.path,
+          method: req.method,
+        });
       }
     }
   };

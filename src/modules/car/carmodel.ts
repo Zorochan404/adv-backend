@@ -53,6 +53,12 @@ export const carCatalogTable = pgTable("car_catalog", {
   imageUrl: varchar("image_url", { length: 500 }),
   isActive: boolean("is_active").notNull().default(true),
   category: varchar("category", { length: 100 }).default("sedan"), // sedan, suv, hatchback, luxury, etc.
+  lateFeeRate: decimal("late_fee_rate", {
+    precision: 10,
+    scale: 2,
+  })
+    .notNull()
+    .default("0.10"), // Hourly late fee rate (default 10% of daily rate)
   createdBy: integer("created_by").references(() => UserTable.id, {
     onDelete: "cascade",
   }),

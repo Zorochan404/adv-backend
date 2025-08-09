@@ -316,6 +316,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "sedan",
+        lateFeeRate: "0.10", // 10% of daily rate per hour
       },
       {
         carName: "Maruti Swift",
@@ -332,6 +333,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=500",
         category: "hatchback",
+        lateFeeRate: "0.08", // 8% of daily rate per hour
       },
       {
         carName: "Toyota Innova Crysta",
@@ -349,6 +351,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?w=500",
         category: "suv",
+        lateFeeRate: "0.12", // 12% of daily rate per hour
       },
       {
         carName: "Hyundai i20",
@@ -365,6 +368,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=500",
         category: "hatchback",
+        lateFeeRate: "0.08", // 8% of daily rate per hour
       },
       {
         carName: "Mahindra XUV500",
@@ -381,6 +385,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "suv",
+        lateFeeRate: "0.12", // 12% of daily rate per hour
       },
       {
         carName: "Kia Seltos",
@@ -398,6 +403,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=500",
         category: "suv",
+        lateFeeRate: "0.11", // 11% of daily rate per hour
       },
       {
         carName: "Tata Nexon EV",
@@ -415,6 +421,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?w=500",
         category: "electric",
+        lateFeeRate: "0.15", // 15% of daily rate per hour (higher for EVs)
       },
       {
         carName: "BMW 3 Series",
@@ -432,6 +439,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "luxury",
+        lateFeeRate: "0.20", // 20% of daily rate per hour (higher for luxury cars)
       },
     ];
 
@@ -451,5 +459,68 @@ export const seedCarCatalog = asyncHandler(
     }, "seedCarCatalog");
 
     return sendCreated(res, createdEntries, "Car catalog seeded successfully");
+  }
+);
+
+// Update existing car catalog entries with late fee rates
+export const updateCarCatalogLateFees = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can update car catalog late fees");
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get all existing car catalog entries
+      const existingEntries = await db.select().from(carCatalogTable);
+
+      const updatedEntries = [];
+      for (const entry of existingEntries) {
+        let lateFeeRate = "0.10"; // Default 10%
+
+        // Set late fee rates based on category
+        switch (entry.category) {
+          case "hatchback":
+            lateFeeRate = "0.08"; // 8% for hatchbacks
+            break;
+          case "sedan":
+            lateFeeRate = "0.10"; // 10% for sedans
+            break;
+          case "suv":
+            lateFeeRate = "0.12"; // 12% for SUVs
+            break;
+          case "electric":
+            lateFeeRate = "0.15"; // 15% for electric vehicles
+            break;
+          case "luxury":
+            lateFeeRate = "0.20"; // 20% for luxury cars
+            break;
+          default:
+            lateFeeRate = "0.10"; // Default 10%
+        }
+
+        // Update the entry with late fee rate
+        const updatedEntry = await db
+          .update(carCatalogTable)
+          .set({
+            lateFeeRate: lateFeeRate,
+            updatedAt: new Date(),
+          })
+          .where(eq(carCatalogTable.id, entry.id))
+          .returning();
+
+        updatedEntries.push(updatedEntry[0]);
+      }
+
+      return updatedEntries;
+    }, "updateCarCatalogLateFees");
+
+    return sendSuccess(
+      res,
+      result,
+      "Car catalog late fees updated successfully"
+    );
   }
 );

@@ -1,6 +1,7 @@
 import express, { Router } from "express";
 import {
   createBooking,
+  getBookingByDateRange,
   getbookingbyid,
   getbookingbyuserid,
   updatebooking,
@@ -10,21 +11,50 @@ import {
   picApproveConfirmation,
   confirmFinalPayment,
   getPICDashboard,
+  verifyBookingOTP,
+  resendBookingOTP,
+  getBookingOTP,
+  rescheduleBooking,
+  getPICByEntity,
+  getPICConfirmationRequests,
+  resubmitConfirmationRequest,
+  getUserRejectedConfirmations,
+  getBookingStatus,
+  getUserBookingsWithStatus,
+  confirmCarPickup,
+  checkBookingOverdue,
+  applyTopupToBooking,
+  calculateLateFees,
+  payLateFees,
+  confirmCarReturn,
+  getEarningsOverview,
 } from "./bookingcontroller";
-import { verifyJWT, requireUser, requirePIC } from "../middleware/auth";
+import {
+  verifyJWT,
+  requireUser,
+  requirePIC,
+  requireAdmin,
+} from "../middleware/auth";
 import {
   validateRequest,
   idParamSchema,
+  bookingIdParamSchema,
   bookingCreateSchema,
   bookingPaymentSchema,
   bookingConfirmationSchema,
   bookingPICApprovalSchema,
+  bookingOTPVerificationSchema,
+  bookingResendOTPSchema,
+  bookingRescheduleSchema,
   paginationQuerySchema,
+  topupApplySchema,
+  lateFeePaymentSchema,
+  earningsOverviewSchema,
 } from "../utils/validation";
 
 const router: Router = express.Router();
 
-// User routes
+// Create booking route
 router.post(
   "/",
   verifyJWT,
@@ -32,6 +62,9 @@ router.post(
   validateRequest(bookingCreateSchema),
   createBooking
 );
+
+// User routes
+
 router.get(
   "/user",
   verifyJWT,
@@ -39,6 +72,10 @@ router.get(
   validateRequest(paginationQuerySchema),
   getbookingbyuserid
 );
+
+// Get PIC by entity (car, booking, or parking) - Must come before /:id route
+router.get("/pic-by-entity", verifyJWT, getPICByEntity);
+
 router.get(
   "/:id",
   verifyJWT,
@@ -76,6 +113,68 @@ router.post(
   validateRequest(bookingConfirmationSchema),
   submitConfirmationRequest
 );
+
+// Resubmit confirmation request after rejection
+router.post(
+  "/resubmit-confirmation",
+  verifyJWT,
+  requireUser,
+  validateRequest(bookingConfirmationSchema),
+  resubmitConfirmationRequest
+);
+
+// Get user's rejected confirmation requests
+router.get(
+  "/user/rejected-confirmations",
+  verifyJWT,
+  requireUser,
+  getUserRejectedConfirmations
+);
+
+// Get comprehensive booking status
+router.get("/status/:bookingId", verifyJWT, requireUser, getBookingStatus);
+
+// Get all user bookings with status summaries
+router.get(
+  "/user/with-status",
+  verifyJWT,
+  requireUser,
+  getUserBookingsWithStatus
+);
+
+// Confirm car pickup (PIC confirms car has been taken from parking lot)
+router.post("/confirm-pickup", verifyJWT, requirePIC, confirmCarPickup);
+
+// Extension and topup routes
+router.get("/:bookingId/overdue", verifyJWT, requireUser, checkBookingOverdue);
+router.post(
+  "/apply-topup",
+  verifyJWT,
+  requireUser,
+  validateRequest(topupApplySchema),
+  applyTopupToBooking
+);
+router.get("/:bookingId/late-fees", verifyJWT, requireUser, calculateLateFees);
+router.post(
+  "/pay-late-fees",
+  verifyJWT,
+  requireUser,
+  validateRequest(lateFeePaymentSchema),
+  payLateFees
+);
+
+// Confirm car return (PIC confirms car has been returned to parking lot)
+router.post("/confirm-return", verifyJWT, requirePIC, confirmCarReturn);
+
+// Admin routes
+router.get(
+  "/earnings/overview",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(earningsOverviewSchema),
+  getEarningsOverview
+);
+
 router.post(
   "/pic-approve",
   verifyJWT,
@@ -91,7 +190,55 @@ router.post(
   confirmFinalPayment
 );
 
-// PIC routes
-router.get("/pic/dashboard", verifyJWT, requirePIC, getPICDashboard);
+// PIC (Parking In Charge) routes
+router.get(
+  "/pic/dashboard",
+  verifyJWT,
+  requirePIC,
+  validateRequest(paginationQuerySchema),
+  getPICDashboard
+);
+
+// Get all confirmation requests for PIC's parking lot
+router.get(
+  "/pic/confirmation-requests",
+  verifyJWT,
+  requirePIC,
+  getPICConfirmationRequests
+);
+
+// OTP Verification Routes
+router.post(
+  "/verify-otp",
+  verifyJWT,
+  requirePIC,
+  validateRequest(bookingOTPVerificationSchema),
+  verifyBookingOTP
+);
+
+router.post(
+  "/resend-otp",
+  verifyJWT,
+  requireUser,
+  validateRequest(bookingResendOTPSchema),
+  resendBookingOTP
+);
+
+router.get(
+  "/otp/:bookingId",
+  verifyJWT,
+  requireUser,
+  validateRequest(bookingIdParamSchema),
+  getBookingOTP
+);
+
+// Reschedule booking
+router.put(
+  "/reschedule/:bookingId",
+  verifyJWT,
+  requireUser,
+  validateRequest({ ...bookingIdParamSchema, ...bookingRescheduleSchema }),
+  rescheduleBooking
+);
 
 export default router;

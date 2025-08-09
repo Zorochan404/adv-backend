@@ -1,6 +1,11 @@
 import express, { Router } from "express";
-import { loginuser, registerAdmin, loginAdmin } from "./authcontroller";
-import { verifyJWT } from "../middleware/auth";
+import {
+  loginuser,
+  registerAdmin,
+  loginAdmin,
+  migratePasswords,
+} from "./authcontroller";
+import { verifyJWT, requireAdmin } from "../middleware/auth";
 import {
   validateRequest,
   loginSchema,
@@ -19,5 +24,8 @@ router.post(
   registerAdmin
 );
 router.post("/loginAdmin", validateRequest(adminLoginSchema), loginAdmin);
+
+// Admin-only routes
+router.post("/migrate-passwords", verifyJWT, requireAdmin, migratePasswords);
 
 export default router;
