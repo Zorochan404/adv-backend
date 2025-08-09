@@ -19,7 +19,6 @@ const router: Router = express.Router();
 router.post("/login", validateRequest(loginSchema), loginuser);
 router.post(
   "/registerAdmin",
-  verifyJWT,
   validateRequest(adminRegisterSchema),
   registerAdmin
 );
