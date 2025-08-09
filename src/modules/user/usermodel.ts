@@ -1,9 +1,25 @@
-import { pgTable, serial, varchar, integer, bigint, timestamp, pgEnum, boolean, text, doublePrecision } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  serial,
+  varchar,
+  integer,
+  bigint,
+  timestamp,
+  pgEnum,
+  boolean,
+  text,
+  doublePrecision,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { parkingTable } from "../parking/parkingmodel";
 import { bookingsTable } from "../booking/bookingmodel";
 
-export const userRoleEnum = pgEnum("user_role", ["user", "admin", "vendor" , "parkingincharge"]);
+export const userRoleEnum = pgEnum("user_role", [
+  "user",
+  "admin",
+  "vendor",
+  "parkingincharge",
+]);
 
 export const UserTable = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -28,7 +44,9 @@ export const UserTable = pgTable("users", {
   pincode: integer("pincode"),
   role: userRoleEnum("role").default("user"),
   isverified: boolean("is_verified").default(false),
-  parkingid: integer("parkingid").references(() => parkingTable.id, { onDelete: "cascade" }),
+  parkingid: integer("parkingid").references(() => parkingTable.id, {
+    onDelete: "cascade",
+  }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -42,4 +60,3 @@ export const vendorRelations = relations(UserTable, ({ one, many }) => ({
   // Add reverse relation for bookings
   bookings: many(bookingsTable),
 }));
-

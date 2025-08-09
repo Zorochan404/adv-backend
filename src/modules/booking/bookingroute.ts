@@ -50,6 +50,7 @@ import {
   topupApplySchema,
   lateFeePaymentSchema,
   earningsOverviewSchema,
+  picDateFilterSchema,
 } from "../utils/validation";
 
 const router: Router = express.Router();
@@ -72,9 +73,6 @@ router.get(
   validateRequest(paginationQuerySchema),
   getbookingbyuserid
 );
-
-// Get PIC by entity (car, booking, or parking) - Must come before /:id route
-router.get("/pic-by-entity", verifyJWT, getPICByEntity);
 
 router.get(
   "/:id",
@@ -145,6 +143,26 @@ router.get(
 // Confirm car pickup (PIC confirms car has been taken from parking lot)
 router.post("/confirm-pickup", verifyJWT, requirePIC, confirmCarPickup);
 
+// PIC (Parking In Charge) routes
+router.get(
+  "/pic/dashboard",
+  verifyJWT,
+  requirePIC,
+  validateRequest(picDateFilterSchema),
+  getPICDashboard
+);
+
+// Get all confirmation requests for PIC's parking lot
+router.get(
+  "/pic/confirmation-requests",
+  verifyJWT,
+  requirePIC,
+  getPICConfirmationRequests
+);
+
+// Get PIC by entity (car, booking, or parking) - Must come after /pic/* routes
+router.get("/pic-by-entity", verifyJWT, getPICByEntity);
+
 // Extension and topup routes
 router.get("/:bookingId/overdue", verifyJWT, requireUser, checkBookingOverdue);
 router.post(
@@ -188,23 +206,6 @@ router.post(
   requireUser,
   validateRequest(bookingPaymentSchema),
   confirmFinalPayment
-);
-
-// PIC (Parking In Charge) routes
-router.get(
-  "/pic/dashboard",
-  verifyJWT,
-  requirePIC,
-  validateRequest(paginationQuerySchema),
-  getPICDashboard
-);
-
-// Get all confirmation requests for PIC's parking lot
-router.get(
-  "/pic/confirmation-requests",
-  verifyJWT,
-  requirePIC,
-  getPICConfirmationRequests
 );
 
 // OTP Verification Routes

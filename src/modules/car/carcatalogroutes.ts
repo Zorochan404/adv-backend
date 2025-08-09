@@ -8,6 +8,7 @@ import {
   getActiveCarCatalog,
   seedCarCatalog,
   updateCarCatalogLateFees,
+  getAllCarCategories,
 } from "./carcatalogcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
 import {
@@ -23,6 +24,7 @@ const router: Router = express.Router();
 
 // Public routes (no authentication required)
 router.get("/active", getActiveCarCatalog);
+router.get("/categories", getAllCarCategories);
 router.get("/:id", validateRequest(idParamSchema), getCarCatalogById);
 
 // Admin-only routes

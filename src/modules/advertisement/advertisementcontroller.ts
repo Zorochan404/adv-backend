@@ -392,6 +392,10 @@ export const getActiveAdvertisements = asyncHandler(
       const limitNum = Math.min(parseInt(limit as string) || 5, 20);
       const currentDate = new Date();
 
+      // Allow advertisements that are currently active or scheduled to start within the next 30 days
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(currentDate.getDate() + 30);
+
       const advertisements = await db
         .select({
           id: advertisementTable.id,
@@ -410,8 +414,8 @@ export const getActiveAdvertisements = asyncHandler(
             eq(advertisementTable.isActive, true),
             eq(advertisementTable.adType, adType as any),
             eq(advertisementTable.location, location as string),
-            lte(advertisementTable.startDate, currentDate),
-            gte(advertisementTable.endDate, currentDate)
+            lte(advertisementTable.startDate, thirtyDaysFromNow), // Allow ads starting within next 30 days
+            gte(advertisementTable.endDate, currentDate) // Must not have ended yet
           )
         )
         .orderBy(

@@ -11,6 +11,7 @@ import {
   sendCreated,
   sendUpdated,
   sendDeleted,
+  sendPaginated,
 } from "../utils/responseHandler";
 import { withDatabaseErrorHandling } from "../utils/dbErrorHandler";
 
@@ -111,6 +112,8 @@ export const getNearByParking = asyncHandler(
       lat,
       lng,
       radius = 500,
+      limit = 10,
+      page = 1,
     } = req.method === "GET" ? req.query : req.body;
 
     // Validate input coordinates
@@ -122,11 +125,32 @@ export const getNearByParking = asyncHandler(
       throw ApiError.badRequest("Invalid coordinates provided");
     }
 
-    const parking = await withDatabaseErrorHandling(async () => {
-      // Haversine formula to calculate distance between two points on Earth
-      // Distance = 2 * R * asin(sqrt(sin²(Δφ/2) + cos(φ1) * cos(φ2) * sin²(Δλ/2)))
-      // Where R = Earth's radius (6371 km)
-      return await db
+    // Parse and validate pagination parameters
+    const limitNum = Math.min(parseInt(limit as string) || 10, 50);
+    const pageNum = Math.max(parseInt(page as string) || 1, 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get total count first for pagination
+      const totalCountQuery = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(parkingTable)
+        .where(
+          sql`
+                (6371 * acos(
+                    cos(radians(${lat})) * 
+                    cos(radians(${parkingTable.lat})) * 
+                    cos(radians(${parkingTable.lng}) - radians(${lng})) + 
+                    sin(radians(${lat})) * 
+                    sin(radians(${parkingTable.lat}))
+                )) <= ${radius}
+            `
+        );
+
+      const total = totalCountQuery[0]?.count || 0;
+
+      // Get paginated results
+      const parking = await db
         .select({
           id: parkingTable.id,
           name: parkingTable.name,
@@ -164,17 +188,30 @@ export const getNearByParking = asyncHandler(
                 )) <= ${radius}
             `
         )
-        .orderBy(sql`distance`);
+        .orderBy(sql`distance`)
+        .limit(limitNum)
+        .offset(offset);
+
+      return { parking, total };
     }, "getNearByParking");
 
-    if (parking.length === 0) {
-      return sendList(res, [], 0, "No parking found");
+    if (result.parking.length === 0) {
+      return sendPaginated(
+        res,
+        [],
+        result.total,
+        pageNum,
+        limitNum,
+        "No parking found"
+      );
     }
 
-    return sendList(
+    return sendPaginated(
       res,
-      parking,
-      parking.length,
+      result.parking,
+      result.total,
+      pageNum,
+      limitNum,
       "Nearby parking fetched successfully"
     );
   }

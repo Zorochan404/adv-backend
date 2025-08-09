@@ -13,6 +13,7 @@ import {
   sendDeleted,
   sendItem,
   sendList,
+  sendPaginated,
 } from "../utils/responseHandler";
 import {
   generateOTP,
@@ -2380,5 +2381,366 @@ export const applyTopupToBooking = asyncHandler<AuthenticatedRequest>(
       },
       "Topup applied successfully. Booking extended."
     );
+  }
+);
+
+// Get cars coming for pickup at PIC's parking lot (PIC only)
+export const getPickupCars = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    try {
+      if (!req.user || req.user.role !== "parkingincharge") {
+        throw ApiError.forbidden("Parking In Charge access required");
+      }
+
+      const { startDate, endDate, limit = 20, page = 1 } = req.query;
+
+      // Parse and validate query parameters
+      const limitNum = Math.min(parseInt(limit as string) || 20, 50);
+      const pageNum = Math.max(parseInt(page as string) || 1, 1);
+      const offset = (pageNum - 1) * limitNum;
+
+      // Build where conditions for pickup cars
+      const conditions: any[] = [
+        eq(bookingsTable.advancePaymentStatus, "paid"), // After advance payment
+        eq(bookingsTable.status, "advance_paid"), // Status should be advance_paid
+        // Note: We'll need to get the PIC's parking lot ID from their profile or a separate table
+        // For now, we'll show all pickup cars and let the frontend filter by parking lot
+      ];
+
+      // Add date filtering if provided
+      if (startDate && endDate) {
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          throw ApiError.badRequest("Invalid date format");
+        }
+
+        if (start >= end) {
+          throw ApiError.badRequest("End date must be after start date");
+        }
+
+        // Filter by pickup date range - handle null pickupDate gracefully
+        const pickupDateCondition = bookingsTable.pickupDate
+          ? and(
+              gte(bookingsTable.pickupDate, start),
+              lte(bookingsTable.pickupDate, end)
+            )
+          : and(
+              gte(bookingsTable.startDate, start),
+              lte(bookingsTable.startDate, end)
+            );
+
+        if (pickupDateCondition) {
+          conditions.push(pickupDateCondition);
+        }
+      }
+
+      // Get total count
+      const totalPickups = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(bookingsTable)
+        .where(and(...conditions.filter(Boolean)));
+
+      const total = totalPickups[0]?.count || 0;
+
+      // Get pickup cars with pagination
+      const pickupCars = await db
+        .select({
+          id: bookingsTable.id,
+          carId: bookingsTable.carId,
+          userId: bookingsTable.userId,
+          startDate: bookingsTable.startDate,
+          endDate: bookingsTable.endDate,
+          pickupDate: bookingsTable.pickupDate,
+          actualPickupDate: bookingsTable.actualPickupDate,
+          basePrice: bookingsTable.basePrice,
+          advanceAmount: bookingsTable.advanceAmount,
+          remainingAmount: bookingsTable.remainingAmount,
+          totalPrice: bookingsTable.totalPrice,
+          status: bookingsTable.status,
+          advancePaymentStatus: bookingsTable.advancePaymentStatus,
+          otpCode: bookingsTable.otpCode,
+          otpVerified: bookingsTable.otpVerified,
+          userConfirmed: bookingsTable.userConfirmed,
+          picApproved: bookingsTable.picApproved,
+          pickupParkingId: bookingsTable.pickupParkingId,
+          dropoffParkingId: bookingsTable.dropoffParkingId,
+          createdAt: bookingsTable.createdAt,
+          updatedAt: bookingsTable.updatedAt,
+        })
+        .from(bookingsTable)
+        .where(and(...conditions.filter(Boolean)))
+        .limit(limitNum)
+        .offset(offset)
+        .orderBy(desc(bookingsTable.pickupDate || bookingsTable.startDate));
+
+      // Get additional details for each booking
+      const enrichedPickupCars = await Promise.all(
+        pickupCars.map(async (booking) => {
+          // Get car details
+          const car = await db
+            .select({
+              id: carModel.id,
+              name: carModel.name,
+              number: carModel.number,
+              color: carModel.color,
+              price: carModel.price,
+              images: carModel.images,
+              catalogId: carModel.catalogId,
+            })
+            .from(carModel)
+            .where(eq(carModel.id, booking.carId))
+            .limit(1);
+
+          // Get user details
+          const user = await db
+            .select({
+              id: UserTable.id,
+              name: UserTable.name,
+              email: UserTable.email,
+              number: UserTable.number,
+            })
+            .from(UserTable)
+            .where(eq(UserTable.id, booking.userId))
+            .limit(1);
+
+          // Get parking details
+          const pickupParking = booking.pickupParkingId
+            ? await db
+                .select({
+                  id: parkingTable.id,
+                  name: parkingTable.name,
+                  locality: parkingTable.locality,
+                  city: parkingTable.city,
+                  state: parkingTable.state,
+                })
+                .from(parkingTable)
+                .where(eq(parkingTable.id, booking.pickupParkingId))
+                .limit(1)
+            : null;
+
+          const dropoffParking = booking.dropoffParkingId
+            ? await db
+                .select({
+                  id: parkingTable.id,
+                  name: parkingTable.name,
+                  locality: parkingTable.locality,
+                  city: parkingTable.city,
+                  state: parkingTable.state,
+                })
+                .from(parkingTable)
+                .where(eq(parkingTable.id, booking.dropoffParkingId))
+                .limit(1)
+            : null;
+
+          return {
+            ...booking,
+            car: car[0] || null,
+            user: user[0] || null,
+            pickupParking: pickupParking?.[0] || null,
+            dropoffParking: dropoffParking?.[0] || null,
+          };
+        })
+      );
+
+      // Calculate pagination info
+      const totalPages = Math.ceil(total / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPrevPage = pageNum > 1;
+
+      return sendPaginated(
+        res,
+        enrichedPickupCars,
+        total,
+        pageNum,
+        limitNum,
+        "Pickup cars fetched successfully"
+      );
+    } catch (error) {
+      console.log(error);
+      throw new ApiError(500, "Failed to fetch pickup cars");
+    }
+  }
+);
+
+// Get cars coming for dropoff at PIC's parking lot (PIC only)
+export const getDropoffCars = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    try {
+      if (!req.user || req.user.role !== "parkingincharge") {
+        throw ApiError.forbidden("Parking In Charge access required");
+      }
+
+      const { startDate, endDate, limit = 20, page = 1 } = req.query;
+
+      // Parse and validate query parameters
+      const limitNum = Math.min(parseInt(limit as string) || 20, 50);
+      const pageNum = Math.max(parseInt(page as string) || 1, 1);
+      const offset = (pageNum - 1) * limitNum;
+
+      // Build where conditions for dropoff cars
+      const conditions: any[] = [
+        eq(bookingsTable.status, "active"), // Active bookings
+        eq(bookingsTable.finalPaymentStatus, "paid"), // Final payment completed
+        // Note: We'll need to get the PIC's parking lot ID from their profile or a separate table
+        // For now, we'll show all dropoff cars and let the frontend filter by parking lot
+      ];
+
+      // Add date filtering if provided
+      if (startDate && endDate) {
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          throw ApiError.badRequest("Invalid date format");
+        }
+
+        if (start >= end) {
+          throw ApiError.badRequest("End date must be after start date");
+        }
+
+        // Filter by dropoff date range (end date of booking)
+        conditions.push(
+          and(
+            gte(bookingsTable.endDate, start),
+            lte(bookingsTable.endDate, end)
+          )
+        );
+      }
+
+      // Get total count
+      const totalDropoffs = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(bookingsTable)
+        .where(and(...conditions.filter(Boolean)));
+
+      const total = totalDropoffs[0]?.count || 0;
+
+      // Get dropoff cars with pagination
+      const dropoffCars = await db
+        .select({
+          id: bookingsTable.id,
+          carId: bookingsTable.carId,
+          userId: bookingsTable.userId,
+          startDate: bookingsTable.startDate,
+          endDate: bookingsTable.endDate,
+          actualPickupDate: bookingsTable.actualPickupDate,
+          actualDropoffDate: bookingsTable.actualDropoffDate,
+          basePrice: bookingsTable.basePrice,
+          advanceAmount: bookingsTable.advanceAmount,
+          remainingAmount: bookingsTable.remainingAmount,
+          totalPrice: bookingsTable.totalPrice,
+          status: bookingsTable.status,
+          finalPaymentStatus: bookingsTable.finalPaymentStatus,
+          extensionPrice: bookingsTable.extensionPrice,
+          extensionTill: bookingsTable.extensionTill,
+          lateFees: bookingsTable.lateFees,
+          lateFeesPaid: bookingsTable.lateFeesPaid,
+          returnCondition: bookingsTable.returnCondition,
+          returnComments: bookingsTable.returnComments,
+          pickupParkingId: bookingsTable.pickupParkingId,
+          dropoffParkingId: bookingsTable.dropoffParkingId,
+          createdAt: bookingsTable.createdAt,
+          updatedAt: bookingsTable.updatedAt,
+        })
+        .from(bookingsTable)
+        .where(and(...conditions.filter(Boolean)))
+        .limit(limitNum)
+        .offset(offset)
+        .orderBy(desc(bookingsTable.endDate));
+
+      // Get additional details for each booking
+      const enrichedDropoffCars = await Promise.all(
+        dropoffCars.map(async (booking) => {
+          // Get car details
+          const car = await db
+            .select({
+              id: carModel.id,
+              name: carModel.name,
+              number: carModel.number,
+              color: carModel.color,
+              price: carModel.price,
+              images: carModel.images,
+              catalogId: carModel.catalogId,
+            })
+            .from(carModel)
+            .where(eq(carModel.id, booking.carId))
+            .limit(1);
+
+          // Get user details
+          const user = await db
+            .select({
+              id: UserTable.id,
+              name: UserTable.name,
+              email: UserTable.email,
+              number: UserTable.number,
+            })
+            .from(UserTable)
+            .where(eq(UserTable.id, booking.userId))
+            .limit(1);
+
+          // Get parking details
+          const pickupParking = booking.pickupParkingId
+            ? await db
+                .select({
+                  id: parkingTable.id,
+                  name: parkingTable.name,
+                  locality: parkingTable.locality,
+                  city: parkingTable.city,
+                  state: parkingTable.state,
+                })
+                .from(parkingTable)
+                .where(eq(parkingTable.id, booking.pickupParkingId))
+                .limit(1)
+            : null;
+
+          const dropoffParking = booking.dropoffParkingId
+            ? await db
+                .select({
+                  id: parkingTable.id,
+                  name: parkingTable.name,
+                  locality: parkingTable.locality,
+                  city: parkingTable.city,
+                  state: parkingTable.state,
+                })
+                .from(parkingTable)
+                .where(eq(parkingTable.id, booking.dropoffParkingId))
+                .limit(1)
+            : null;
+
+          return {
+            ...booking,
+            car: car[0] || null,
+            user: user[0] || null,
+            pickupParking: pickupParking?.[0] || null,
+            dropoffParking: dropoffParking?.[0] || null,
+          };
+        })
+      );
+
+      // Calculate pagination info
+      const totalPages = Math.ceil(total / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPrevPage = pageNum > 1;
+
+      return sendPaginated(
+        res,
+        enrichedDropoffCars,
+        total,
+        pageNum,
+        limitNum,
+        "Dropoff cars fetched successfully"
+      );
+    } catch (error) {
+      console.log(error);
+      throw new ApiError(500, "Failed to fetch dropoff cars");
+    }
   }
 );

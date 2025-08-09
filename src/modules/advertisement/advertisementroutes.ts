@@ -6,6 +6,9 @@ import {
   updateAdvertisement,
   deleteAdvertisement,
   getActiveAdvertisements,
+  incrementViewCount,
+  incrementClickCount,
+  getAdvertisementStats,
 } from "./advertisementcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
 import {
@@ -21,19 +24,36 @@ const router: Router = express.Router();
 
 // Public routes
 router.get(
-  "/",
+  "/active",
   validateRequest(advertisementFilterSchema),
   getActiveAdvertisements
 );
 
+// Create advertisement (admin only)
+router.post(
+  "/create",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(advertisementCreateSchema),
+  createAdvertisement
+);
+
 // Admin routes
 router.get(
-  "/all",
+  "/admin/all",
   verifyJWT,
   requireAdmin,
   validateRequest({ ...advertisementFilterSchema, ...paginationQuerySchema }),
   getAllAdvertisements
 );
+
+router.get("/admin/stats", verifyJWT, requireAdmin, getAdvertisementStats);
+
+// Parameterized routes (must come after specific routes)
+router.post("/:id/view", validateRequest(idParamSchema), incrementViewCount);
+
+router.post("/:id/click", validateRequest(idParamSchema), incrementClickCount);
+
 router.get(
   "/:id",
   verifyJWT,
@@ -41,13 +61,7 @@ router.get(
   validateRequest(idParamSchema),
   getAdvertisementById
 );
-router.post(
-  "/",
-  verifyJWT,
-  requireAdmin,
-  validateRequest(advertisementCreateSchema),
-  createAdvertisement
-);
+
 router.put(
   "/:id",
   verifyJWT,
@@ -55,6 +69,7 @@ router.put(
   validateRequest({ ...idParamSchema, ...advertisementUpdateSchema }),
   updateAdvertisement
 );
+
 router.delete(
   "/:id",
   verifyJWT,

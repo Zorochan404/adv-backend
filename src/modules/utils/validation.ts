@@ -32,6 +32,14 @@ export const paginationQuerySchema = z.object({
   order: z.enum(["asc", "desc"]).default("desc"),
 });
 
+// PIC date filtering schema
+export const picDateFilterSchema = z.object({
+  startDate: z.string().datetime("Invalid start date format").optional(),
+  endDate: z.string().datetime("Invalid end date format").optional(),
+  limit: z.coerce.number().min(1).max(50).default(20),
+  page: z.coerce.number().min(1).default(1),
+});
+
 // User schemas
 export const userCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -296,6 +304,8 @@ export const parkingLocationSchema = z.object({
   lat: z.coerce.number().min(-90).max(90, "Invalid latitude"),
   lng: z.coerce.number().min(-180).max(180, "Invalid longitude"),
   radius: z.coerce.number().positive("Radius must be positive").default(500),
+  limit: z.coerce.number().min(1).max(50).default(10),
+  page: z.coerce.number().min(1).default(1),
 });
 
 // Review schemas
@@ -450,6 +460,8 @@ export const advertisementFilterSchema = z.object({
   status: z.enum(["active", "inactive", "expired"]).optional(),
   adType: z.enum(["banner", "popup", "carousel"]).optional(),
   isActive: z.enum(["true", "false"]).optional(),
+  location: z.string().optional(),
+  limit: z.coerce.number().min(1).max(50).optional(),
 });
 
 // Validation middleware

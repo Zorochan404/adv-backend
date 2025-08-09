@@ -15,6 +15,7 @@ import bookingRouter from "./modules/booking/bookingroute";
 import advertisementRouter from "./modules/advertisement/advertisementroutes";
 import carCatalogRouter from "./modules/car/carcatalogroutes";
 import topupRouter from "./modules/booking/topuproutes";
+import picRouter from "./modules/pic/picroutes";
 
 // Import error handling utilities
 import {
@@ -144,6 +145,7 @@ app.use("/api/v1/booking", bookingRouter);
 app.use("/api/v1/advertisements", advertisementRouter);
 app.use("/api/v1/car-catalog", carCatalogRouter);
 app.use("/api/v1/topups", topupRouter);
+app.use("/api/v1/pic", picRouter);
 
 // 404 handler for undefined routes
 app.use(notFoundHandler);

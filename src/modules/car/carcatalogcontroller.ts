@@ -524,3 +524,31 @@ export const updateCarCatalogLateFees = asyncHandler(
     );
   }
 );
+
+// Get all unique car categories
+export const getAllCarCategories = asyncHandler(
+  async (req: Request, res: Response) => {
+    const categories = await withDatabaseErrorHandling(async () => {
+      const result = await db
+        .selectDistinct({ category: carCatalogTable.category })
+        .from(carCatalogTable)
+        .where(eq(carCatalogTable.isActive, true));
+
+      // Extract categories and filter out null/undefined values
+      const categoryList = result
+        .map(item => item.category)
+        .filter(category => category && category.trim() !== "");
+
+      // Remove duplicates and sort alphabetically
+      const uniqueCategories = [...new Set(categoryList)].sort();
+
+      return uniqueCategories;
+    }, "getAllCarCategories");
+
+    return sendSuccess(
+      res,
+      { categories },
+      "Car categories retrieved successfully"
+    );
+  }
+);

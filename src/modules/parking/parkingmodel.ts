@@ -1,5 +1,13 @@
 import { relations } from "drizzle-orm";
-import { pgTable, serial, varchar, integer, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  serial,
+  varchar,
+  integer,
+  timestamp,
+  jsonb,
+  doublePrecision,
+} from "drizzle-orm/pg-core";
 import { UserTable } from "../user/usermodel";
 import { bookingsTable } from "../booking/bookingmodel";
 
@@ -30,4 +38,3 @@ export const parkingRelations = relations(parkingTable, ({ many }) => ({
     relationName: "dropoffParking",
   }),
 }));
-
