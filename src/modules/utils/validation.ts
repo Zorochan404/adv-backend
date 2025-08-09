@@ -126,7 +126,6 @@ export const loginSchema = z
   );
 
 export const adminRegisterSchema = z.object({
-  name: z.string().min(1, "Name is required"),
   number: z.string().regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   role: z.enum(["admin", "user", "vendor", "parkingincharge"]),
