@@ -237,12 +237,28 @@ export const registerAdmin = asyncHandler(
         })
         .returning();
 
+      // Generate access token for new admin user
+      const accessToken = jwt.sign(
+        {
+          _id: newUser[0].id,
+          number: newUser[0].number,
+          role: newUser[0].role,
+        },
+        process.env.ACCESS_TOKEN_SECRET as string,
+        {
+          expiresIn: "1d",
+        }
+      );
+
       // Exclude password from user object before sending response
       const { password: _password, ...userWithoutPassword } = newUser[0];
-      return userWithoutPassword;
+      return {
+        user: userWithoutPassword,
+        accessToken,
+      };
     }, "registerAdmin");
 
-    return sendCreated(res, user, "User created successfully");
+    return sendSuccess(res, user, "Admin user created successfully");
   }
 );
 
