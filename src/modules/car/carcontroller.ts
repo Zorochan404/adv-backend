@@ -747,8 +747,36 @@ export const createCar = asyncHandler(
           `Car with number ${req.body.number} already exists`
         );
       }
+      
+      // Create a copy of the request body to modify
+      const carData = { ...req.body };
+      
+      // If catalogId is provided, fetch price and discountprice from catalog
+      if (carData.catalogId) {
+        console.log(`🚗 [CREATE_CAR] Fetching price from catalog ID: ${carData.catalogId}`);
+        
+        const catalogEntry = await db
+          .select({
+            platformPrice: carCatalogTable.carPlatformPrice,
+            vendorPrice: carCatalogTable.carVendorPrice
+          })
+          .from(carCatalogTable)
+          .where(eq(carCatalogTable.id, carData.catalogId))
+          .limit(1);
+        
+        if (catalogEntry.length > 0) {
+          // Use platform price as the regular price
+          carData.price = Number(catalogEntry[0].platformPrice);
+          // Use vendor price as the discount price
+          carData.discountprice = Number(catalogEntry[0].vendorPrice);
+          
+          console.log(`🚗 [CREATE_CAR] Inferred price: ${carData.price}, discount price: ${carData.discountprice}`);
+        } else {
+          console.log(`🚗 [CREATE_CAR] Warning: Catalog ID ${carData.catalogId} not found`);
+        }
+      }
 
-      const newCar = await db.insert(carModel).values(req.body).returning();
+      const newCar = await db.insert(carModel).values(carData).returning();
       console.log(
         `🚗 [CREATE_CAR] Database operation completed. Car ID: ${newCar[0]?.id}`
       );
@@ -830,6 +858,7 @@ export const updateCar = asyncHandler(
         "images",
         "catalogId",
         "status",
+        "insuranceAmount",
       ];
 
       const catalogFields = [

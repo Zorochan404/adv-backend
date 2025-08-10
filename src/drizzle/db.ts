@@ -23,6 +23,10 @@ import {
   advertisementRelations,
 } from "../modules/advertisement/advertisementmodel";
 import {
+  couponTable,
+  couponRelations,
+} from "../modules/coupon/couponmodel";
+import {
   topupTable,
   topupRelations,
   bookingTopupTable,
@@ -51,6 +55,7 @@ const schema = {
   parkingTable,
   bookingsTable,
   advertisementTable,
+  couponTable,
   topupTable,
   bookingTopupTable,
   picVerificationTable,
@@ -62,6 +67,7 @@ const schema = {
   parkingRelations,
   bookingRelations,
   advertisementRelations,
+  couponRelations,
   topupRelations,
   bookingTopupRelations,
   picVerificationRelations,

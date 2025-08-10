@@ -13,6 +13,7 @@ import {
   updateCar,
   deleteCar,
 } from "./carcontroller";
+import { seedInsuranceAmounts } from "./seedInsurance";
 import {
   verifyJWT,
   requireAdmin,
@@ -69,6 +70,12 @@ router.get(
   getCar
 );
 router.post(
+  "/seed-insurance",
+  verifyJWT,
+  requireAdmin,
+  seedInsuranceAmounts
+);
+router.post(
   "/add",
   verifyJWT,
   requireVendorOrAdmin,
@@ -83,7 +90,7 @@ router.get(
   validateRequest({ ...idParamSchema, ...paginationQuerySchema }),
   getCarByParkingId
 );
-router.put("/:id", verifyJWT, requireVendorOrAdmin, updateCar);
+router.put("/:id", verifyJWT, updateCar);
 router.delete(
   "/delete/:id",
   verifyJWT,

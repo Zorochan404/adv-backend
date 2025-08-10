@@ -43,6 +43,13 @@
       "when": 1754785074289,
       "tag": "0005_fancy_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1754810421526,
+      "tag": "0006_rare_karma",
+      "breakpoints": true
     }
   ]
 }

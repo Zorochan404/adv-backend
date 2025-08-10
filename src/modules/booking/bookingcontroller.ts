@@ -5,6 +5,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { eq, between, and, gte, lte, sql, inArray, desc } from "drizzle-orm";
 import { carModel } from "../car/carmodel";
 import { parkingTable } from "../parking/parkingmodel";
+import { couponTable, couponStatusEnum } from "../coupon/couponmodel";
 import { ApiError } from "../utils/apiError";
 import {
   sendSuccess,
@@ -58,7 +59,13 @@ const cleanToolsData = (tools: any): any[] => {
 
 export const createBooking = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
-    const { carId, startDate, endDate, deliveryCharges = 0 } = req.body;
+    const {
+      carId,
+      startDate,
+      endDate,
+      deliveryCharges = 0,
+      couponCode,
+    } = req.body;
 
     // Validate required fields
     if (!carId || !startDate || !endDate) {
@@ -112,16 +119,114 @@ export const createBooking = asyncHandler<AuthenticatedRequest>(
       throw ApiError.conflict("Car is already booked for the selected dates");
     }
 
-    // Calculate pricing
+    // Calculate base pricing
     const days = Math.ceil(
       (endDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24)
     );
     const basePrice =
       (carprice[0]?.discountprice || carprice[0]?.price || 0) * days;
+
+    // Get insurance amount from car details
+    const insuranceAmount = carprice[0]?.insuranceAmount || 0;
+
+    // Initialize discount variables
+    let discountAmount = 0;
+    let appliedCouponId = null;
+
+    // Apply coupon if provided
+    if (couponCode) {
+      // Find the coupon
+      const coupons = await db
+        .select()
+        .from(couponTable)
+        .where(
+          and(
+            eq(couponTable.code, couponCode),
+            eq(couponTable.status, "active"),
+            eq(couponTable.isActive, true),
+            lte(couponTable.startDate, new Date()),
+            gte(couponTable.endDate, new Date())
+          )
+        );
+
+      if (!coupons || coupons.length === 0) {
+        throw ApiError.badRequest("Invalid or expired coupon code");
+      }
+
+      const coupon = coupons[0];
+
+      // Check if coupon has usage limit and if it's reached
+      if (
+        coupon.usageLimit !== null &&
+        coupon.usageCount >= coupon.usageLimit
+      ) {
+        throw ApiError.badRequest("Coupon usage limit reached");
+      }
+
+      // Check if user has already used this coupon up to the per-user limit
+      if (coupon.perUserLimit) {
+        const userCouponUsage = await db
+          .select({ count: sql`count(*)` })
+          .from(bookingsTable)
+          .where(
+            and(
+              eq(bookingsTable.userId, req.user.id),
+              eq(bookingsTable.couponId, coupon.id)
+            )
+          );
+
+        const usageCount = parseInt(
+          userCouponUsage[0]?.count?.toString() || "0"
+        );
+        if (usageCount >= coupon.perUserLimit) {
+          throw ApiError.badRequest(
+            `You have already used this coupon ${coupon.perUserLimit} time(s)`
+          );
+        }
+      }
+
+      // Check minimum booking amount
+      if (
+        coupon.minBookingAmount &&
+        basePrice < parseFloat(coupon.minBookingAmount.toString())
+      ) {
+        throw ApiError.badRequest(
+          `Minimum booking amount for this coupon is ${coupon.minBookingAmount}`
+        );
+      }
+
+      // Calculate discount
+      if (coupon.discountType === "percentage") {
+        discountAmount =
+          (basePrice * parseFloat(coupon.discountAmount.toString())) / 100;
+
+        // Apply max discount cap if applicable
+        if (
+          coupon.maxDiscountAmount &&
+          discountAmount > parseFloat(coupon.maxDiscountAmount.toString())
+        ) {
+          discountAmount = parseFloat(coupon.maxDiscountAmount.toString());
+        }
+      } else {
+        // Fixed discount
+        discountAmount = parseFloat(coupon.discountAmount.toString());
+
+        // Ensure discount doesn't exceed the base price
+        if (discountAmount > basePrice) {
+          discountAmount = basePrice;
+        }
+      }
+
+      appliedCouponId = coupon.id;
+    }
+
+    // Calculate final pricing
+    const totalBeforeDiscount =
+      basePrice + Number(insuranceAmount) + Number(deliveryCharges);
+    const totalPrice = totalBeforeDiscount - discountAmount;
     const advancePercentage = 0.3; // 30% advance payment (configurable by admin)
-    const advanceAmount = basePrice * advancePercentage;
-    const remainingAmount = basePrice - advanceAmount;
-    const totalPrice = basePrice + deliveryCharges;
+    const advanceAmount = totalPrice * advancePercentage;
+    const remainingAmount = totalPrice - advanceAmount;
 
     // Get car details to get parking ID
     const carDetails = await db
@@ -137,24 +242,29 @@ export const createBooking = asyncHandler<AuthenticatedRequest>(
 
     const parkingId = carDetails[0].parkingId;
 
+    // Insert booking
     const newBooking = await db
       .insert(bookingsTable)
       .values({
-        carId: carId,
+        carId,
         userId: Number(req.user.id),
         pickupParkingId: parkingId,
-        dropoffParkingId: parkingId, // Same as pickup for now
+        dropoffParkingId: parkingId,
         startDate: startDateObj,
         endDate: endDateObj,
-        basePrice: basePrice,
-        advanceAmount: advanceAmount,
-        remainingAmount: remainingAmount,
-        totalPrice: totalPrice,
+        basePrice,
+        advanceAmount,
+        remainingAmount,
+        totalPrice,
         status: "pending",
         advancePaymentStatus: "pending",
         confirmationStatus: "pending",
         finalPaymentStatus: "pending",
-        deliveryCharges: deliveryCharges,
+        deliveryCharges,
+        // Add coupon and insurance fields
+        couponId: appliedCouponId,
+        discountAmount,
+        insuranceAmount: Number(insuranceAmount),
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -395,10 +505,38 @@ export const getbookingbyid = asyncHandler(
       throw ApiError.notFound("Booking not found");
     }
 
+    // Get coupon details if couponId exists
+    let couponDetails = null;
+    if (booking.couponId) {
+      const couponResult = await db
+        .select()
+        .from(couponTable)
+        .where(eq(couponTable.id, booking.couponId));
+
+      if (couponResult && couponResult.length > 0) {
+        couponDetails = couponResult[0];
+      }
+    }
+
     // Clean up tools data
     const cleanedBooking = {
       ...booking,
       tools: cleanToolsData(booking.tools),
+      couponDetails,
+      // Add billing breakdown
+      billingBreakdown: {
+        basePrice: booking.basePrice,
+        insuranceAmount: booking.insuranceAmount || 0,
+        deliveryCharges: booking.deliveryCharges || 0,
+        discountAmount: booking.discountAmount || 0,
+        totalBeforeDiscount:
+          Number(booking.basePrice) +
+          Number(booking.insuranceAmount || 0) +
+          Number(booking.deliveryCharges || 0),
+        totalPrice: booking.totalPrice,
+        advanceAmount: booking.advanceAmount,
+        remainingAmount: booking.remainingAmount,
+      },
     };
 
     return sendItem(res, cleanedBooking, "Booking fetched successfully");
@@ -1752,14 +1890,22 @@ export const getUserBookingsWithStatus = asyncHandler<AuthenticatedRequest>(
       const cleanedBooking = {
         ...booking,
         tools: cleanToolsData(booking.tools),
+        statusSummary: calculateBookingStatus(booking),
+        billingBreakdown: {
+          basePrice: booking.basePrice,
+          insuranceAmount: booking.insuranceAmount || 0,
+          deliveryCharges: booking.deliveryCharges || 0,
+          discountAmount: booking.discountAmount || 0,
+          totalBeforeDiscount:
+            Number(booking.basePrice) +
+            Number(booking.insuranceAmount || 0) +
+            Number(booking.deliveryCharges || 0),
+          totalPrice: booking.totalPrice,
+          advanceAmount: booking.advanceAmount,
+          remainingAmount: booking.remainingAmount,
+        },
       };
-
-      const statusSummary = calculateBookingStatus(cleanedBooking);
-
-      return {
-        ...cleanedBooking,
-        statusSummary,
-      };
+      return cleanedBooking;
     });
 
     // Group bookings by status
@@ -2897,6 +3043,288 @@ export const getPublicBookingStatus = asyncHandler(
         statusInfo,
       },
       "Booking status retrieved successfully"
+    );
+  }
+);
+
+export const getUserBookingsFormatted = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user.id;
+
+    const result = await db.query.bookingsTable.findMany({
+      where: (bookingsTable, { eq }) => eq(bookingsTable.userId, userId),
+      with: {
+        car: {
+          with: {
+            vendor: true,
+            parking: true,
+            catalog: true,
+          },
+        },
+        pickupParking: true,
+        dropoffParking: true,
+      },
+      orderBy: (bookingsTable, { desc }) => [desc(bookingsTable.createdAt)],
+    });
+
+    // Process bookings and format them according to the required structure
+    const formattedBookings = result.map((booking) => {
+      // Get car image from catalog or use a default
+      const carImage =
+        booking.car?.catalog?.imageUrl ||
+        (booking.car?.images && booking.car.images.length > 0
+          ? booking.car.images[0]
+          : "https://example.com/car-images/default.jpg");
+
+      // Get car name from catalog or use car name
+      const carName =
+        booking.car?.catalog?.carName ||
+        `${booking.car?.catalog?.carMaker || "Car"} ${
+          booking.car?.catalog?.carModelYear || ""
+        }`.trim() ||
+        booking.car?.name ||
+        "Unknown Car";
+
+      // Format dates
+      const pickupDate = booking.startDate
+        ? new Date(booking.startDate).toISOString().split("T")[0]
+        : "";
+      const dropoffDate = booking.endDate
+        ? new Date(booking.endDate).toISOString().split("T")[0]
+        : "";
+      const bookedAt = booking.createdAt
+        ? new Date(booking.createdAt).toISOString().split("T")[0]
+        : "";
+
+      // Format times (using pickup and dropoff dates if available)
+      const pickupTime = booking.pickupDate
+        ? new Date(booking.pickupDate).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "12:00 PM";
+
+      const dropoffTime = booking.endDate
+        ? new Date(booking.endDate).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "12:00 PM";
+
+      // Get location names
+      const pickupLocation =
+        booking.pickupParking?.name ||
+        `${booking.pickupParking?.locality || ""}, ${
+          booking.pickupParking?.city || ""
+        }`.trim() ||
+        "Pickup Location";
+
+      const dropoffLocation =
+        booking.dropoffParking?.name ||
+        `${booking.dropoffParking?.locality || ""}, ${
+          booking.dropoffParking?.city || ""
+        }`.trim() ||
+        "Dropoff Location";
+
+      // Determine status for current bookings
+      let status = "inactive";
+      if (
+        booking.finalPaymentStatus === "paid" &&
+        (booking.status === "active" || booking.status === "completed")
+      ) {
+        status = "active";
+      }
+
+      // Create billing breakdown
+      const billingBreakdown = {
+        basePrice: Number(booking.basePrice) || 0,
+        insuranceAmount: Number(booking.insuranceAmount) || 0,
+        deliveryCharges: Number(booking.deliveryCharges) || 0,
+        discountAmount: Number(booking.discountAmount) || 0,
+        totalBeforeDiscount:
+          Number(booking.basePrice || 0) +
+          Number(booking.insuranceAmount || 0) +
+          Number(booking.deliveryCharges || 0),
+        totalPrice: Number(booking.totalPrice) || 0,
+        advanceAmount: Number(booking.advanceAmount) || 0,
+        remainingAmount: Number(booking.remainingAmount) || 0,
+      };
+
+      return {
+        id: booking.id,
+        status,
+        carImage,
+        carName,
+        pickupLocation,
+        dropoffLocation,
+        pickupDate,
+        dropoffDate,
+        pickupTime,
+        dropoffTime,
+        bookedAt,
+        billingBreakdown,
+      };
+    });
+
+    // Separate current and past bookings
+    const currentBookings = formattedBookings.filter(
+      (booking) => booking.status === "active" || booking.status === "inactive"
+    );
+
+    const pastBookings = formattedBookings.filter(
+      (booking) => !currentBookings.includes(booking)
+    );
+
+    return sendSuccess(
+      res,
+      {
+        bookings: {
+          current: currentBookings,
+          past: pastBookings,
+        },
+      },
+      "User bookings retrieved successfully"
+    );
+  }
+);
+
+export const getDetailedBookingById = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid booking ID");
+    }
+
+    const bookingId = parseInt(id);
+
+    const result = await db.query.bookingsTable.findFirst({
+      where: (bookingsTable, { eq, and }) =>
+        and(eq(bookingsTable.id, bookingId), eq(bookingsTable.userId, userId)),
+      with: {
+        car: {
+          with: {
+            vendor: true,
+            parking: true,
+            catalog: true,
+          },
+        },
+        pickupParking: true,
+        dropoffParking: true,
+        coupon: true,
+      },
+    });
+
+    if (!result) {
+      throw ApiError.notFound("Booking not found or access denied");
+    }
+
+    // Calculate number of days
+    const startDate = new Date(result.startDate);
+    const endDate = new Date(result.endDate);
+    const numberOfDays = Math.ceil(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    // Get car image from catalog or use a default
+    const carImage =
+      result.car?.catalog?.imageUrl ||
+      (result.car?.images && result.car.images.length > 0
+        ? result.car.images[0]
+        : "https://example.com/car-images/default.jpg");
+
+    // Get car name from catalog or use car name
+    const carName =
+      result.car?.catalog?.carName ||
+      `${result.car?.catalog?.carMaker || "Car"} ${
+        result.car?.catalog?.carModelYear || ""
+      }`.trim() ||
+      result.car?.name ||
+      "Unknown Car";
+
+    // Determine status
+    let status = "inactive";
+    if (
+      result.finalPaymentStatus === "paid" &&
+      (result.status === "active" || result.status === "completed")
+    ) {
+      status = "active";
+    }
+
+    // Format dates
+    const pickupDate = result.startDate
+      ? new Date(result.startDate).toISOString().split("T")[0]
+      : "";
+    const dropoffDate = result.endDate
+      ? new Date(result.endDate).toISOString().split("T")[0]
+      : "";
+    const bookedOn = result.createdAt
+      ? new Date(result.createdAt).toISOString().split("T")[0]
+      : "";
+
+    // Get location address
+    const locationAddress =
+      result.pickupParking?.name ||
+      `${result.pickupParking?.locality || ""}, ${
+        result.pickupParking?.city || ""
+      }`.trim() ||
+      "Pickup Location";
+
+    // Create billing breakdown
+    const billingBreakdown = {
+      basePrice: Number(result.basePrice) || 0,
+      insuranceAmount: Number(result.insuranceAmount) || 0,
+      deliveryCharges: Number(result.deliveryCharges) || 0,
+      discountAmount: Number(result.discountAmount) || 0,
+      totalBeforeDiscount:
+        Number(result.basePrice || 0) +
+        Number(result.insuranceAmount || 0) +
+        Number(result.deliveryCharges || 0),
+      totalPrice: Number(result.totalPrice) || 0,
+      advanceAmount: Number(result.advanceAmount) || 0,
+      remainingAmount: Number(result.remainingAmount) || 0,
+    };
+
+    const detailedBooking = {
+      name: carName,
+      image: carImage,
+      status: status,
+      isOTP: result.otpVerified || false,
+      isCarChecked:
+        result.carConditionImages && result.carConditionImages.length > 0,
+      isPaid: result.finalPaymentStatus === "paid",
+      totalRating: 4.5, // This would come from reviews table in a real implementation
+      totalPeopleRated: 128, // This would come from reviews table in a real implementation
+      parkingName: result.pickupParking?.name || "Unknown Parking",
+      perDayCost:
+        Number(result.car?.catalog?.carPlatformPrice) ||
+        Number(result.car?.price) ||
+        0,
+      carType: result.car?.catalog?.category || "Sedan",
+      fuelType: result.car?.catalog?.fuelType || "Petrol",
+      noOfSeats: result.car?.catalog?.seats || 5,
+      bookingDetails: {
+        pickupDate: pickupDate,
+        dropoffDate: dropoffDate,
+        numberOfDays: numberOfDays,
+        locationAddress: locationAddress,
+        couponCode: result.coupon?.code || null,
+        isInsurance: Number(result.insuranceAmount) > 0,
+        isHomeDelivery: result.deliveryType === "delivery",
+        bookedOn: bookedOn,
+        billingBreakdown: billingBreakdown,
+      },
+    };
+
+    return sendSuccess(
+      res,
+      {
+        booking: detailedBooking,
+      },
+      "Detailed booking retrieved successfully"
     );
   }
 );

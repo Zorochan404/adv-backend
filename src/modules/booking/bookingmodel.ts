@@ -12,6 +12,7 @@ import { relations } from "drizzle-orm";
 import { UserTable } from "../user/usermodel";
 import { carModel } from "../car/carmodel";
 import { parkingTable } from "../parking/parkingmodel";
+import { couponTable } from "../coupon/couponmodel";
 
 export const bookingsTable = pgTable("bookings", {
   id: serial("id").primaryKey(),
@@ -25,6 +26,9 @@ export const bookingsTable = pgTable("bookings", {
   carId: integer("car_id")
     .notNull()
     .references(() => carModel.id, { onDelete: "cascade" }),
+    
+  // Foreign key to coupon
+  couponId: integer("coupon_id").references(() => couponTable.id),
 
   // Booking details
   startDate: timestamp("start_date").notNull(),
@@ -43,6 +47,10 @@ export const bookingsTable = pgTable("bookings", {
   advanceAmount: doublePrecision("advance_amount").notNull(),
   remainingAmount: doublePrecision("remaining_amount").notNull(),
   totalPrice: doublePrecision("total_price").notNull(),
+  
+  // Coupon and insurance
+  discountAmount: doublePrecision("discount_amount").default(0),
+  insuranceAmount: doublePrecision("insurance_amount").default(0),
 
   // Extension/Topup
   extensionPrice: doublePrecision("extension_price").default(0),
@@ -135,6 +143,10 @@ export const bookingRelations = relations(bookingsTable, ({ one }) => ({
   car: one(carModel, {
     fields: [bookingsTable.carId],
     references: [carModel.id],
+  }),
+  coupon: one(couponTable, {
+    fields: [bookingsTable.couponId],
+    references: [couponTable.id],
   }),
   pickupParking: one(parkingTable, {
     fields: [bookingsTable.pickupParkingId],

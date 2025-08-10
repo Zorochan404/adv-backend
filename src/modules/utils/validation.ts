@@ -154,11 +154,9 @@ export const passwordUpdateSchema = z
 export const carCreateSchema = z.object({
   name: z.string().min(1, "Car name is required").max(100, "Car name too long"),
   number: z.string().min(1, "Car number is required"),
-  price: z.number().positive("Price must be positive"),
-  discountprice: z
-    .number()
-    .positive("Discount price must be positive")
-    .optional(),
+  // Make price and discountprice optional as they will be inferred from catalog
+  price: z.number().positive("Price must be positive").optional(),
+  discountprice: z.number().positive("Discount price must be positive").optional(),
   color: z.string().optional(),
   rcnumber: z.string().optional(),
   rcimg: z.string().url("Invalid RC image URL").optional(),

@@ -30,6 +30,8 @@ import {
   getEarningsOverview,
   getPICBookings,
   getPublicBookingStatus,
+  getUserBookingsFormatted,
+  getDetailedBookingById,
 } from "./bookingcontroller";
 import {
   verifyJWT,
@@ -78,6 +80,12 @@ router.get(
 
 // Get user's own bookings using JWT (no user ID needed)
 router.get("/my-bookings", verifyJWT, requireUser, getUserBookingsWithStatus);
+
+// Get user's formatted bookings (current and past)
+router.get("/user/formatted", verifyJWT, requireUser, getUserBookingsFormatted);
+
+// Get detailed booking by ID (user can only see their own bookings)
+router.get("/detail/:id", verifyJWT, requireUser, getDetailedBookingById);
 
 router.get(
   "/:id",

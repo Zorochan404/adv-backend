@@ -81,6 +81,8 @@ export const carModel = pgTable("car", {
   discountprice: integer("discountprice"),
   inmaintainance: boolean("inmaintainance").notNull().default(false),
   isavailable: boolean("isavailable").notNull().default(true),
+  // Insurance amount for the car (default 500)  
+  insuranceAmount: decimal("insurance_amount", { precision: 10, scale: 2 }).notNull().default("500"),
   // Restored critical fields
   rcnumber: varchar("rcnumber", { length: 255 }),
   rcimg: varchar("rcimg", { length: 255 }),
