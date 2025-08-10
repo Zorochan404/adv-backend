@@ -38,7 +38,7 @@ export const getPickupCars = asyncHandler<AuthenticatedRequest>(
         return and(
           inArray(bookingsTable.carId, carsInParking),
           eq(bookingsTable.status, "advance_paid"), // Show cars after advance payment
-          eq(bookingsTable.picApproved, true) // Only PIC approved bookings
+          eq(bookingsTable.picApproved, false) // Show cars that need PIC approval
         );
       },
       with: {
@@ -180,6 +180,76 @@ export const getDropoffCars = asyncHandler<AuthenticatedRequest>(
           200,
           responseData,
           "Dropoff cars retrieved successfully"
+        )
+      );
+  }
+);
+
+// Get all cars under the PIC's parking lot
+export const getAllCarsUnderPIC = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const picParkingId = req.user.parkingid;
+
+    if (!picParkingId) {
+      throw new ApiResponse(400, null, "PIC must be assigned to a parking lot");
+    }
+
+    // Get all cars in PIC's parking lot
+    const cars = await db.query.carModel.findMany({
+      where: (carModel, { eq }) => eq(carModel.parkingid, picParkingId),
+      with: {
+        catalog: true,
+        vendor: {
+          columns: {
+            id: true,
+            name: true,
+            email: true,
+            number: true,
+          },
+        },
+      },
+      orderBy: (carModel, { asc }) => [asc(carModel.name)],
+    });
+
+    // Transform the data to include required fields
+    const transformedCars = cars.map((car) => ({
+      id: car.id,
+      name: car.name,
+      number: car.number,
+      price: car.price,
+      discountPrice: car.discountprice,
+      color: car.color,
+      inMaintenance: car.inmaintainance,
+      isAvailable: car.isavailable,
+      status: car.status,
+      maker: car.catalog?.carMaker,
+      year: car.catalog?.carModelYear,
+      engineCapacity: car.catalog?.engineCapacity,
+      mileage: car.catalog?.mileage,
+      features: car.catalog?.features,
+      transmission: car.catalog?.transmission,
+      fuel: car.catalog?.fuelType,
+      seats: car.catalog?.seats,
+      vendorName: car.vendor?.name,
+      vendorEmail: car.vendor?.email,
+      vendorPhone: car.vendor?.number,
+      createdAt: car.createdAt,
+      updatedAt: car.updatedAt,
+    }));
+
+    const responseData = {
+      cars: transformedCars,
+      total: transformedCars.length,
+      parkingId: picParkingId,
+    };
+
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          responseData,
+          "Cars under PIC parking lot retrieved successfully"
         )
       );
   }

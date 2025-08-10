@@ -1,7 +1,11 @@
 import express, { Router } from "express";
 import { verifyJWT, requirePIC } from "../middleware/auth";
 import { validateRequest, picDateFilterSchema } from "../utils/validation";
-import { getPickupCars, getDropoffCars } from "./piccontroller";
+import {
+  getPickupCars,
+  getDropoffCars,
+  getAllCarsUnderPIC,
+} from "./piccontroller";
 
 const router: Router = Router();
 
@@ -39,5 +43,8 @@ router.get(
   validateRequest(picDateFilterSchema),
   getDropoffCars
 );
+
+// Get all cars under the PIC's parking lot
+router.get("/cars", verifyJWT, requirePIC, getAllCarsUnderPIC);
 
 export default router;
