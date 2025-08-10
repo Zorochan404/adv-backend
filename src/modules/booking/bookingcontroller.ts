@@ -2744,3 +2744,159 @@ export const getDropoffCars = asyncHandler(
     }
   }
 );
+
+export const getPICBookings = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const picId = req.user.id;
+    const picParkingId = (req.user as any).parkingid;
+
+    if (!picParkingId) {
+      throw ApiError.badRequest("PIC must be assigned to a parking lot");
+    }
+
+    // Check if user is PIC (Parking In Charge)
+    if ((req.user as any).role !== "parkingincharge") {
+      throw ApiError.forbidden(
+        "Only Parking In Charge can access this endpoint"
+      );
+    }
+
+    // Get all cars in PIC's parking lot
+    const cars = await db.query.carModel.findMany({
+      where: (carModel, { eq }) => eq(carModel.parkingid, picParkingId),
+      with: {
+        vendor: true,
+        parking: true,
+        catalog: true,
+      },
+    });
+
+    // Get all bookings for cars in PIC's parking lot
+    const rawBookings = await db.query.bookingsTable.findMany({
+      where: (bookingsTable, { inArray }) =>
+        cars.length > 0
+          ? inArray(
+              bookingsTable.carId,
+              cars.map((car) => car.id)
+            )
+          : undefined,
+      with: {
+        car: {
+          with: {
+            vendor: true,
+            parking: true,
+            catalog: true,
+          },
+        },
+        user: {
+          columns: {
+            id: true,
+            name: true,
+            email: true,
+            number: true,
+          },
+        },
+        pickupParking: true,
+        dropoffParking: true,
+      },
+      orderBy: (bookingsTable, { desc }) => [desc(bookingsTable.createdAt)],
+    });
+
+    // Clean up tools data for all bookings
+    const bookings = rawBookings.map((booking) => ({
+      ...booking,
+      tools: cleanToolsData(booking.tools),
+    }));
+
+    // Group bookings by status
+    const groupedBookings = {
+      pending: bookings.filter((b) => b.status === "pending"),
+      advancePaid: bookings.filter((b) => b.status === "advance_paid"),
+      confirmed: bookings.filter((b) => b.status === "confirmed"),
+      active: bookings.filter((b) => b.status === "active"),
+      completed: bookings.filter((b) => b.status === "completed"),
+      cancelled: bookings.filter((b) => b.status === "cancelled"),
+    };
+
+    // Get statistics
+    const stats = {
+      totalBookings: bookings.length,
+      pending: groupedBookings.pending.length,
+      advancePaid: groupedBookings.advancePaid.length,
+      confirmed: groupedBookings.confirmed.length,
+      active: groupedBookings.active.length,
+      completed: groupedBookings.completed.length,
+      cancelled: groupedBookings.cancelled.length,
+    };
+
+    return sendSuccess(
+      res,
+      {
+        parkingLotId: picParkingId,
+        cars,
+        bookings,
+        groupedBookings,
+        stats,
+      },
+      "PIC bookings retrieved successfully"
+    );
+  }
+);
+
+export const getPublicBookingStatus = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { bookingId } = req.params;
+
+    if (!bookingId || !/^[0-9]+$/.test(bookingId)) {
+      throw ApiError.badRequest("Invalid booking ID");
+    }
+
+    const result = await db.query.bookingsTable.findFirst({
+      where: (bookingsTable, { eq }) =>
+        eq(bookingsTable.id, parseInt(bookingId)),
+      with: {
+        car: {
+          with: {
+            vendor: true,
+            parking: true,
+            catalog: true,
+          },
+        },
+        pickupParking: true,
+        dropoffParking: true,
+        user: {
+          columns: {
+            id: true,
+            name: true,
+            email: true,
+            number: true,
+          },
+        },
+      },
+    });
+
+    if (!result) {
+      throw ApiError.notFound("Booking not found");
+    }
+
+    const booking = result;
+
+    // Clean up tools data
+    const cleanedBooking = {
+      ...booking,
+      tools: cleanToolsData(booking.tools),
+    };
+
+    // Calculate booking progress and status
+    const statusInfo = calculateBookingStatus(cleanedBooking);
+
+    return sendSuccess(
+      res,
+      {
+        booking: cleanedBooking,
+        statusInfo,
+      },
+      "Booking status retrieved successfully"
+    );
+  }
+);

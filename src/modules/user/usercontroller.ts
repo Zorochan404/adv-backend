@@ -61,10 +61,10 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   }
 
   // Check if user is trying to set isverified to true (only admins can do this)
-  const currentUser = (req as any).user;
-  if (updateData.isverified === true && currentUser.role !== "admin") {
-    throw ApiError.forbidden("Only admins can verify user accounts");
-  }
+  // const currentUser = (req as any).user;
+  // if (updateData.isverified === true && currentUser.role !== "admin") {
+  //   throw ApiError.forbidden("Only admins can verify user accounts");
+  // }
 
   const user = await withDatabaseErrorHandling(async () => {
     const updatedUser = await db

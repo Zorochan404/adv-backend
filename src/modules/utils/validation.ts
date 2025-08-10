@@ -307,6 +307,31 @@ export const parkingLocationSchema = z.object({
   page: z.coerce.number().min(1).default(1),
 });
 
+// Parking approval schemas
+export const parkingApprovalCreateSchema = z.object({
+  parkingName: z.string().min(1, "Parking name is required"),
+  locality: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  pincode: z.number().optional(),
+  capacity: z.number().positive("Capacity must be positive"),
+  mainimg: z.string().url("Invalid main image URL"),
+  images: z.array(z.string().url("Invalid image URL")),
+  lat: z.number().min(-90).max(90, "Invalid latitude"),
+  lng: z.number().min(-180).max(180, "Invalid longitude"),
+});
+
+export const parkingApprovalUpdateSchema = z.object({
+  status: z.enum(["pending", "approved", "rejected"]),
+  adminComments: z.string().optional(),
+});
+
+export const parkingApprovalFilterSchema = z.object({
+  status: z.enum(["pending", "approved", "rejected"]).optional(),
+  userId: z.coerce.number().positive().optional(),
+});
+
 // Review schemas
 export const reviewCreateSchema = z.object({
   rating: z.number().min(1).max(5, "Rating must be between 1 and 5"),
@@ -529,6 +554,12 @@ export type CarCatalogCreateInput = z.infer<typeof carCatalogCreateSchema>;
 export type CarCatalogUpdateInput = z.infer<typeof carCatalogUpdateSchema>;
 export type ParkingCreateInput = z.infer<typeof parkingCreateSchema>;
 export type ParkingUpdateInput = z.infer<typeof parkingUpdateSchema>;
+export type ParkingApprovalCreateInput = z.infer<
+  typeof parkingApprovalCreateSchema
+>;
+export type ParkingApprovalUpdateInput = z.infer<
+  typeof parkingApprovalUpdateSchema
+>;
 export type ReviewCreateInput = z.infer<typeof reviewCreateSchema>;
 export type ReviewUpdateInput = z.infer<typeof reviewUpdateSchema>;
 export type BookingCreateInput = z.infer<typeof bookingCreateSchema>;

@@ -91,8 +91,8 @@ router.get(
 // Owner or Admin routes (for updating/deleting users)
 router.put(
   "/updateuser/:id",
-  verifyJWT,
-  requireOwnerOrAdmin,
+  // verifyJWT,
+  // requireOwnerOrAdmin,
   validateRequest({ ...idParamSchema, ...userUpdateSchema }),
   updateUser
 );

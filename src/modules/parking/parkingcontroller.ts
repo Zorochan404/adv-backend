@@ -1,6 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler";
 import { db } from "../../drizzle/db";
-import { parkingTable } from "./parkingmodel";
+import { parkingTable, parkingApprovalTable } from "./parkingmodel";
 import { ApiError } from "../utils/apiError";
 import { Request, Response } from "express";
 import { and, eq, sql, like } from "drizzle-orm";
@@ -462,5 +462,247 @@ export const getParkingByIDadmin = asyncHandler(
       result,
       "Parking details with incharge and cars fetched successfully"
     );
+  }
+);
+
+// New methods for parking approval flow
+
+// User submits parking approval request
+export const submitParkingApproval = asyncHandler(
+  async (req: Request & { user?: { id?: number; role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "user") {
+      throw ApiError.forbidden("Only verified users can submit parking approval requests");
+    }
+
+    if (!req.user.id) {
+      throw ApiError.unauthorized("User ID not found");
+    }
+
+    const parkingData = req.body;
+    const userId = req.user.id;
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Check if user already has a pending or approved request
+      const existingRequest = await db
+        .select()
+        .from(parkingApprovalTable)
+        .where(
+          and(
+            eq(parkingApprovalTable.userId, userId),
+            sql`${parkingApprovalTable.status} IN ('pending', 'approved')`
+          )
+        );
+
+      if (existingRequest.length > 0) {
+        throw ApiError.conflict("You already have a pending or approved parking request");
+      }
+
+      // Create parking approval request
+      const newRequest = await db
+        .insert(parkingApprovalTable)
+        .values({
+          userId: userId,
+          parkingName: parkingData.parkingName,
+          locality: parkingData.locality,
+          city: parkingData.city,
+          state: parkingData.state,
+          country: parkingData.country,
+          pincode: parkingData.pincode,
+          capacity: parkingData.capacity,
+          mainimg: parkingData.mainimg,
+          images: parkingData.images,
+          lat: parkingData.lat,
+          lng: parkingData.lng,
+          status: "pending",
+        })
+        .returning();
+
+      return newRequest[0];
+    }, "submitParkingApproval");
+
+    return sendCreated(res, result, "Parking approval request submitted successfully");
+  }
+);
+
+// Admin gets all parking approval requests
+export const getParkingApprovalRequests = asyncHandler(
+  async (req: Request & { user?: { role?: string } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can view parking approval requests");
+    }
+
+    const { status, userId } = req.query;
+
+    const result = await withDatabaseErrorHandling(async () => {
+      let conditions = [];
+
+      if (status) {
+        conditions.push(eq(parkingApprovalTable.status, status as string));
+      }
+
+      if (userId) {
+        conditions.push(eq(parkingApprovalTable.userId, parseInt(userId as string)));
+      }
+
+      const requests = await db
+        .select({
+          id: parkingApprovalTable.id,
+          userId: parkingApprovalTable.userId,
+          parkingName: parkingApprovalTable.parkingName,
+          locality: parkingApprovalTable.locality,
+          city: parkingApprovalTable.city,
+          state: parkingApprovalTable.state,
+          country: parkingApprovalTable.country,
+          pincode: parkingApprovalTable.pincode,
+          capacity: parkingApprovalTable.capacity,
+          mainimg: parkingApprovalTable.mainimg,
+          images: parkingApprovalTable.images,
+          lat: parkingApprovalTable.lat,
+          lng: parkingApprovalTable.lng,
+          status: parkingApprovalTable.status,
+          adminComments: parkingApprovalTable.adminComments,
+          approvedBy: parkingApprovalTable.approvedBy,
+          approvedAt: parkingApprovalTable.approvedAt,
+          createdAt: parkingApprovalTable.createdAt,
+          updatedAt: parkingApprovalTable.updatedAt,
+        })
+        .from(parkingApprovalTable)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(parkingApprovalTable.createdAt);
+
+      return requests;
+    }, "getParkingApprovalRequests");
+
+    return sendList(res, result, result.length, "Parking approval requests fetched successfully");
+  }
+);
+
+// Admin approves/rejects parking request
+export const updateParkingApprovalStatus = asyncHandler(
+  async (req: Request & { user?: { role?: string; id?: number } }, res: Response) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can update parking approval status");
+    }
+
+    if (!req.user.id) {
+      throw ApiError.unauthorized("Admin ID not found");
+    }
+
+    const { id } = req.params;
+    const { status, adminComments } = req.body;
+    const adminId = req.user.id;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid approval request ID");
+    }
+
+    if (!["approved", "rejected"].includes(status)) {
+      throw ApiError.badRequest("Status must be either 'approved' or 'rejected'");
+    }
+
+    const result = await withDatabaseErrorHandling(async () => {
+      // Get the approval request
+      const approvalRequest = await db
+        .select()
+        .from(parkingApprovalTable)
+        .where(eq(parkingApprovalTable.id, parseInt(id)));
+
+      if (approvalRequest.length === 0) {
+        throw ApiError.notFound("Parking approval request not found");
+      }
+
+      const request = approvalRequest[0];
+
+      if (request.status !== "pending") {
+        throw ApiError.badRequest("Can only update pending requests");
+      }
+
+      // Update the approval status
+      const updatedRequest = await db
+        .update(parkingApprovalTable)
+        .set({
+          status: status,
+          adminComments: adminComments,
+          approvedBy: adminId,
+          approvedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(parkingApprovalTable.id, parseInt(id)))
+        .returning();
+
+      // If approved, create the parking and update user role
+      if (status === "approved") {
+        // Import UserTable for the update
+        const { UserTable } = await import("../user/usermodel");
+
+        // Create the parking
+        const newParking = await db
+          .insert(parkingTable)
+          .values({
+            name: request.parkingName,
+            locality: request.locality || null,
+            city: request.city || null,
+            state: request.state || null,
+            country: request.country || null,
+            pincode: request.pincode || null,
+            capacity: request.capacity,
+            mainimg: request.mainimg,
+            images: request.images,
+            lat: request.lat,
+            lng: request.lng,
+          })
+          .returning();
+
+        // Update user role to parkingincharge and assign parking ID
+        await db
+          .update(UserTable)
+          .set({
+            role: "parkingincharge",
+            parkingid: newParking[0].id,
+            updatedAt: new Date(),
+          })
+          .where(eq(UserTable.id, request.userId));
+
+        return {
+          approvalRequest: updatedRequest[0],
+          parking: newParking[0],
+          message: "Parking approved and user role updated successfully",
+        };
+      }
+
+      return {
+        approvalRequest: updatedRequest[0],
+        message: "Parking request rejected",
+      };
+    }, "updateParkingApprovalStatus");
+
+    return sendUpdated(res, result, "Parking approval status updated successfully");
+  }
+);
+
+// User gets their parking approval requests
+export const getUserParkingApprovalRequests = asyncHandler(
+  async (req: Request & { user?: { id?: number; role?: string } }, res: Response) => {
+    if (!req.user) {
+      throw ApiError.unauthorized("User not authenticated");
+    }
+
+    if (!req.user.id) {
+      throw ApiError.unauthorized("User ID not found");
+    }
+
+    const userId = req.user.id;
+
+    const result = await withDatabaseErrorHandling(async () => {
+      const requests = await db
+        .select()
+        .from(parkingApprovalTable)
+        .where(eq(parkingApprovalTable.userId, userId))
+        .orderBy(parkingApprovalTable.createdAt);
+
+      return requests;
+    }, "getUserParkingApprovalRequests");
+
+    return sendList(res, result, result.length, "User parking approval requests fetched successfully");
   }
 );

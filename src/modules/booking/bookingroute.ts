@@ -28,6 +28,8 @@ import {
   payLateFees,
   confirmCarReturn,
   getEarningsOverview,
+  getPICBookings,
+  getPublicBookingStatus,
 } from "./bookingcontroller";
 import {
   verifyJWT,
@@ -73,6 +75,9 @@ router.get(
   validateRequest(paginationQuerySchema),
   getbookingbyuserid
 );
+
+// Get user's own bookings using JWT (no user ID needed)
+router.get("/my-bookings", verifyJWT, requireUser, getUserBookingsWithStatus);
 
 router.get(
   "/:id",
@@ -129,8 +134,11 @@ router.get(
   getUserRejectedConfirmations
 );
 
-// Get comprehensive booking status
+// Get comprehensive booking status (requires authentication)
 router.get("/status/:bookingId", verifyJWT, requireUser, getBookingStatus);
+
+// Get public booking status (no authentication required)
+router.get("/public/status/:bookingId", getPublicBookingStatus);
 
 // Get all user bookings with status summaries
 router.get(
@@ -151,6 +159,9 @@ router.get(
   validateRequest(picDateFilterSchema),
   getPICDashboard
 );
+
+// Get all bookings for PIC's parking lot
+router.get("/pic/bookings", verifyJWT, requirePIC, getPICBookings);
 
 // Get all confirmation requests for PIC's parking lot
 router.get(

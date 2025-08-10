@@ -8,6 +8,10 @@ import {
   updateParking,
   deleteParking,
   getParkingByIDadmin,
+  submitParkingApproval,
+  getParkingApprovalRequests,
+  updateParkingApprovalStatus,
+  getUserParkingApprovalRequests,
 } from "./parkingcontroller";
 import { verifyJWT, requireAdmin } from "../middleware/auth";
 import {
@@ -18,6 +22,9 @@ import {
   parkingFilterSchema,
   parkingLocationSchema,
   paginationQuerySchema,
+  parkingApprovalCreateSchema,
+  parkingApprovalUpdateSchema,
+  parkingApprovalFilterSchema,
 } from "../utils/validation";
 
 const router: Router = express.Router();
@@ -61,6 +68,37 @@ router.delete(
   requireAdmin,
   validateRequest(idParamSchema),
   deleteParking
+);
+
+// New routes for parking approval flow
+
+// User submits parking approval request
+router.post(
+  "/submit-approval",
+  verifyJWT,
+  validateRequest(parkingApprovalCreateSchema),
+  submitParkingApproval
+);
+
+// User gets their parking approval requests
+router.get("/my-approval-requests", verifyJWT, getUserParkingApprovalRequests);
+
+// Admin gets all parking approval requests
+router.get(
+  "/approval-requests",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(parkingApprovalFilterSchema),
+  getParkingApprovalRequests
+);
+
+// Admin approves/rejects parking request
+router.put(
+  "/approval-requests/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest({ ...idParamSchema, ...parkingApprovalUpdateSchema }),
+  updateParkingApprovalStatus
 );
 
 export default router;
