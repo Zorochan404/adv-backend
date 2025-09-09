@@ -234,6 +234,32 @@ export const carLocationSchema = z.object({
   page: z.coerce.number().positive().default(1),
 });
 
+export const carLocationFilterSchema = z.object({
+  lat: z.coerce.number().min(-90).max(90, "Invalid latitude"),
+  lng: z.coerce.number().min(-180).max(180, "Invalid longitude"),
+  radius: z.coerce.number().positive("Radius must be positive").default(500),
+  limit: z.coerce.number().positive().max(50).default(10),
+  page: z.coerce.number().positive().default(1),
+  // Date filtering
+  startDate: z.string().datetime("Invalid start date format").optional(),
+  endDate: z.string().datetime("Invalid end date format").optional(),
+  // Category filtering - supports both string (query) and array (JSON body)
+  categories: z.union([
+    z.string(), // Comma-separated categories from query params
+    z.array(z.string()) // Array of categories from JSON body
+  ]).optional(),
+  category: z.string().optional(), // Single category
+  // Additional car filters
+  minPrice: z.coerce.number().positive("Min price must be positive").optional(),
+  maxPrice: z.coerce.number().positive("Max price must be positive").optional(),
+  transmission: z.enum(["manual", "automatic"]).optional(),
+  fuelType: z.enum(["petrol", "diesel", "electric", "hybrid"]).optional(),
+  minSeats: z.coerce.number().positive("Min seats must be positive").optional(),
+  maxSeats: z.coerce.number().positive("Max seats must be positive").optional(),
+  // Car name/number search
+  search: z.string().optional(),
+});
+
 // Car Catalog schemas
 export const carCatalogCreateSchema = z.object({
   carName: z.string().min(1, "Car name is required"),
@@ -402,6 +428,13 @@ export const bookingRescheduleSchema = z.object({
   newPickupDate: z.string().datetime("Invalid pickup date format"),
   newStartDate: z.string().datetime("Invalid start date format").optional(),
   newEndDate: z.string().datetime("Invalid end date format").optional(),
+});
+
+export const bookingCarReturnSchema = z.object({
+  bookingId: z.number().positive("Invalid booking ID"),
+  returnCondition: z.enum(["good", "fair", "poor"]).optional().default("good"),
+  returnImages: z.array(z.string().url("Invalid return image URL")).optional().default([]),
+  comments: z.string().max(500, "Comments too long").optional(),
 });
 
 // Topup schemas

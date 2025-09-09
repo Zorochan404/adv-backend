@@ -1767,6 +1767,7 @@ const calculateBookingStatus = (booking: any) => {
       picApproval: false,
       finalPayment: false,
       carPickup: false,
+      carReturn: false,
     },
 
     // Next steps
@@ -1853,6 +1854,17 @@ const calculateBookingStatus = (booking: any) => {
     }
   }
 
+  // 7. Car return - always show
+  if (booking.actualDropoffDate) {
+    statusInfo.progress.carReturn = true;
+    statusInfo.statusMessages.push("✅ Car returned complete");
+  } else {
+    statusInfo.statusMessages.push("⏳ Car return pending");
+    if (booking.actualPickupDate) {
+      statusInfo.nextSteps.push("Wait for PIC to confirm car return");
+    }
+  }
+
   // Determine current step and completion status
   if (!statusInfo.progress.advancePayment) {
     statusInfo.currentStep = "Advance Payment";
@@ -1874,6 +1886,9 @@ const calculateBookingStatus = (booking: any) => {
     statusInfo.canProceed = true;
   } else if (!statusInfo.progress.carPickup) {
     statusInfo.currentStep = "Car Pickup (PIC Confirmation)";
+    statusInfo.canProceed = false;
+  } else if (!statusInfo.progress.carReturn) {
+    statusInfo.currentStep = "Car Return (PIC Confirmation)";
     statusInfo.canProceed = false;
   } else {
     statusInfo.currentStep = "Completed";

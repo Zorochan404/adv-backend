@@ -3,7 +3,7 @@ import { carModel, carCatalogTable } from "./carmodel";
 import { db } from "../../drizzle/db";
 import { ApiError } from "../utils/apiError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { and, eq, like, or, sql, gte, lte, asc, desc } from "drizzle-orm";
+import { and, eq, like, or, sql, gte, lte, asc, desc, notInArray, inArray } from "drizzle-orm";
 import { reviewModel } from "../review/reviewmodel";
 import { parkingTable } from "../parking/parkingmodel";
 import { bookingsTable } from "../booking/bookingmodel";
@@ -162,6 +162,17 @@ export const getNearestAvailableCars = asyncHandler(
       radius = 500,
       limit = 10,
       page = 1,
+      startDate,
+      endDate,
+      categories,
+      category,
+      minPrice,
+      maxPrice,
+      transmission,
+      fuelType,
+      minSeats,
+      maxSeats,
+      search,
     } = req.method === "GET" ? req.query : req.body;
 
     // Validate input coordinates
@@ -174,6 +185,100 @@ export const getNearestAvailableCars = asyncHandler(
     }
 
     const result = await withDatabaseErrorHandling(async () => {
+      // Build dynamic conditions
+      const conditions = [
+        // Distance condition
+        sql`
+          (6371 * acos(
+              cos(radians(${lat})) * 
+              cos(radians(${parkingTable.lat})) * 
+              cos(radians(${parkingTable.lng}) - radians(${lng})) + 
+              sin(radians(${lat})) * 
+              sin(radians(${parkingTable.lat}))
+          )) <= ${radius}
+        `,
+        // Basic availability conditions
+        eq(carModel.isavailable, true),
+        eq(carModel.inmaintainance, false),
+        eq(carModel.status, "available"),
+      ];
+
+      // Add date filtering (exclude cars with conflicting bookings)
+      if (startDate && endDate) {
+        const activeBookingCarIds = await db
+          .select({ carId: bookingsTable.carId })
+          .from(bookingsTable)
+          .where(
+            and(
+              sql`${bookingsTable.status} IN ('pending', 'advance_paid', 'confirmed', 'active')`,
+              or(
+                // Booking starts before our end date and ends after our start date
+                sql`${bookingsTable.startDate} < ${endDate} AND ${bookingsTable.endDate} > ${startDate}`,
+                // Booking has extension that conflicts
+                sql`${bookingsTable.extensionTill} IS NOT NULL AND ${bookingsTable.extensionTill} > ${startDate}`
+              )
+            )
+          );
+
+        if (activeBookingCarIds.length > 0) {
+          const bookedCarIds = activeBookingCarIds.map(b => b.carId);
+          conditions.push(notInArray(carModel.id, bookedCarIds));
+        }
+      }
+
+      // Add category filtering
+      if (category) {
+        conditions.push(eq(carCatalogTable.category, category));
+      } else if (categories) {
+        if (Array.isArray(categories)) {
+          // Handle array from JSON body - use inArray from drizzle-orm
+          conditions.push(inArray(carCatalogTable.category, categories));
+        } else {
+          // Handle comma-separated string from query params
+          const categoryList = categories.split(',').map((c: string) => c.trim());
+          conditions.push(inArray(carCatalogTable.category, categoryList));
+        }
+      }
+
+      // Add price filtering
+      if (minPrice) {
+        conditions.push(gte(carModel.discountprice || carModel.price, minPrice));
+      }
+      if (maxPrice) {
+        conditions.push(lte(carModel.discountprice || carModel.price, maxPrice));
+      }
+
+      // Add transmission filtering
+      if (transmission) {
+        conditions.push(eq(carCatalogTable.transmission, transmission));
+      }
+
+      // Add fuel type filtering
+      if (fuelType) {
+        conditions.push(eq(carCatalogTable.fuelType, fuelType));
+      }
+
+      // Add seats filtering
+      if (minSeats) {
+        conditions.push(gte(carCatalogTable.seats, minSeats));
+      }
+      if (maxSeats) {
+        conditions.push(lte(carCatalogTable.seats, maxSeats));
+      }
+
+      // Add search filtering
+      if (search) {
+        const searchTerm = `%${search}%`;
+        conditions.push(
+          sql`(
+            ${carModel.name} ILIKE ${searchTerm} OR 
+            ${carModel.number} ILIKE ${searchTerm} OR 
+            ${carCatalogTable.carName} ILIKE ${searchTerm} OR 
+            ${carCatalogTable.carMaker} ILIKE ${searchTerm}
+          )`
+        );
+      }
+
       // Get total count first
       const totalCountQuery = db
         .select({ count: sql<number>`count(*)` })
@@ -182,23 +287,11 @@ export const getNearestAvailableCars = asyncHandler(
           parkingTable,
           sql`${carModel.parkingid} = ${parkingTable.id}`
         )
-        .where(
-          and(
-            sql`
-                (6371 * acos(
-                    cos(radians(${lat})) * 
-                    cos(radians(${parkingTable.lat})) * 
-                    cos(radians(${parkingTable.lng}) - radians(${lng})) + 
-                    sin(radians(${lat})) * 
-                    sin(radians(${parkingTable.lat}))
-                )) <= ${radius}
-            `,
-            eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false),
-            eq(carModel.status, "available"),
-            eq(carModel.status, "available")
-          )
-        );
+        .leftJoin(
+          carCatalogTable,
+          eq(carModel.catalogId, carCatalogTable.id)
+        )
+        .where(and(...conditions));
 
       const totalCountResult = await totalCountQuery;
       const total = totalCountResult[0]?.count || 0;
@@ -239,28 +332,27 @@ export const getNearestAvailableCars = asyncHandler(
           parkingLocation: parkingTable.locality,
           parkingCity: parkingTable.city,
           parkingState: parkingTable.state,
+          // Add catalog information
+          maker: carCatalogTable.carMaker,
+          year: carCatalogTable.carModelYear,
+          engineCapacity: carCatalogTable.engineCapacity,
+          mileage: carCatalogTable.mileage,
+          features: carCatalogTable.features,
+          transmission: carCatalogTable.transmission,
+          fuel: carCatalogTable.fuelType,
+          seats: carCatalogTable.seats,
+          category: carCatalogTable.category,
         })
         .from(carModel)
         .innerJoin(
           parkingTable,
           sql`${carModel.parkingid} = ${parkingTable.id}`
         )
-        .where(
-          and(
-            sql`
-                (6371 * acos(
-                    cos(radians(${lat})) * 
-                    cos(radians(${parkingTable.lat})) * 
-                    cos(radians(${parkingTable.lng}) - radians(${lng})) + 
-                    sin(radians(${lat})) * 
-                    sin(radians(${parkingTable.lat}))
-                )) <= ${radius}
-            `,
-            eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false),
-            eq(carModel.status, "available")
-          )
+        .leftJoin(
+          carCatalogTable,
+          eq(carModel.catalogId, carCatalogTable.id)
         )
+        .where(and(...conditions))
         .orderBy(sql`parking_distance`)
         .limit(parseInt(limit as string))
         .offset(offset);
@@ -1106,7 +1198,7 @@ export const filterCars = asyncHandler(async (req: Request, res: Response) => {
     if (activeBookingCarIds.length > 0) {
       const bookedCarIds = activeBookingCarIds.map(b => b.carId);
       conditions.push(
-        sql`${carModel.id} NOT IN (${bookedCarIds.join(',')})`
+        notInArray(carModel.id, bookedCarIds)
       );
     }
 

@@ -54,6 +54,7 @@ import {
   bookingOTPVerificationSchema,
   bookingResendOTPSchema,
   bookingRescheduleSchema,
+  bookingCarReturnSchema,
   paginationQuerySchema,
   topupApplySchema,
   lateFeePaymentSchema,
@@ -239,7 +240,8 @@ router.post(
 router.post(
   "/confirm-return", 
   verifyJWT, 
-  requirePermission(Permission.CONFIRM_RETURN), 
+  requirePermission(Permission.CONFIRM_RETURN),
+  validateRequest(bookingCarReturnSchema),
   confirmCarReturn
 );
 

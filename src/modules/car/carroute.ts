@@ -29,6 +29,7 @@ import {
   carSearchSchema,
   carFilterSchema,
   carLocationSchema,
+  carLocationFilterSchema,
   paginationQuerySchema,
 } from "../utils/validation";
 
@@ -40,12 +41,12 @@ router.get("/nearestcars", validateRequest(carLocationSchema), getNearestCars);
 router.post("/nearestcars", validateRequest(carLocationSchema), getNearestCars);
 router.get(
   "/nearestavailablecars",
-  validateRequest(carLocationSchema),
+  validateRequest(carLocationFilterSchema),
   getNearestAvailableCars
 );
 router.post(
   "/nearestavailablecars",
-  validateRequest(carLocationSchema),
+  validateRequest(carLocationFilterSchema),
   getNearestAvailableCars
 );
 router.get(
