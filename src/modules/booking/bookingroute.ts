@@ -32,13 +32,17 @@ import {
   getPublicBookingStatus,
   getUserBookingsFormatted,
   getDetailedBookingById,
+  getAllBookings,
 } from "./bookingcontroller";
-import {
-  verifyJWT,
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  requireResourceAccess, 
+  Permission, 
   requireUser,
   requirePIC,
-  requireAdmin,
-} from "../middleware/auth";
+  requireAdmin 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -63,9 +67,17 @@ const router: Router = express.Router();
 router.post(
   "/",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.CREATE_BOOKING),
   validateRequest(bookingCreateSchema),
   createBooking
+);
+
+// Admin route to get all bookings
+router.get(
+  "/get",
+  verifyJWT,
+  requirePermission(Permission.READ_BOOKING),
+  getAllBookings
 );
 
 // User routes
@@ -73,54 +85,47 @@ router.post(
 router.get(
   "/user",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(paginationQuerySchema),
   getbookingbyuserid
 );
 
 // Get user's own bookings using JWT (no user ID needed)
-router.get("/my-bookings", verifyJWT, requireUser, getUserBookingsWithStatus);
+router.get(
+  "/my-bookings", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING), 
+  getUserBookingsWithStatus
+);
 
 // Get user's formatted bookings (current and past)
-router.get("/user/formatted", verifyJWT, requireUser, getUserBookingsFormatted);
+router.get(
+  "/user/formatted", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING), 
+  getUserBookingsFormatted
+);
 
 // Get detailed booking by ID (user can only see their own bookings)
-router.get("/detail/:id", verifyJWT, requireUser, getDetailedBookingById);
-
 router.get(
-  "/:id",
-  verifyJWT,
-  requireUser,
-  validateRequest(idParamSchema),
-  getbookingbyid
-);
-router.put(
-  "/:id",
-  verifyJWT,
-  requireUser,
-  validateRequest({ ...idParamSchema, ...bookingCreateSchema }),
-  updatebooking
-);
-router.delete(
-  "/:id",
-  verifyJWT,
-  requireUser,
-  validateRequest(idParamSchema),
-  deletebooking
+  "/detail/:id", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING),
+  getDetailedBookingById
 );
 
 // Payment routes
 router.post(
   "/advance-payment",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.MANAGE_BOOKING_PAYMENTS),
   validateRequest(bookingPaymentSchema),
   confirmAdvancePayment
 );
 router.post(
   "/submit-confirmation",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(bookingConfirmationSchema),
   submitConfirmationRequest
 );
@@ -129,7 +134,7 @@ router.post(
 router.post(
   "/resubmit-confirmation",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(bookingConfirmationSchema),
   resubmitConfirmationRequest
 );
@@ -138,12 +143,17 @@ router.post(
 router.get(
   "/user/rejected-confirmations",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.READ_BOOKING),
   getUserRejectedConfirmations
 );
 
 // Get comprehensive booking status (requires authentication)
-router.get("/status/:bookingId", verifyJWT, requireUser, getBookingStatus);
+router.get(
+  "/status/:bookingId", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING),
+  getBookingStatus
+);
 
 // Get public booking status (no authentication required)
 router.get("/public/status/:bookingId", getPublicBookingStatus);
@@ -152,62 +162,92 @@ router.get("/public/status/:bookingId", getPublicBookingStatus);
 router.get(
   "/user/with-status",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.READ_BOOKING),
   getUserBookingsWithStatus
 );
 
 // Confirm car pickup (PIC confirms car has been taken from parking lot)
-router.post("/confirm-pickup", verifyJWT, requirePIC, confirmCarPickup);
+router.post(
+  "/confirm-pickup", 
+  verifyJWT, 
+  requirePermission(Permission.CONFIRM_PICKUP), 
+  confirmCarPickup
+);
 
 // PIC (Parking In Charge) routes
 router.get(
   "/pic/dashboard",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(picDateFilterSchema),
   getPICDashboard
 );
 
 // Get all bookings for PIC's parking lot
-router.get("/pic/bookings", verifyJWT, requirePIC, getPICBookings);
+router.get(
+  "/pic/bookings", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING), 
+  getPICBookings
+);
 
 // Get all confirmation requests for PIC's parking lot
 router.get(
   "/pic/confirmation-requests",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   getPICConfirmationRequests
 );
 
 // Get PIC by entity (car, booking, or parking) - Must come after /pic/* routes
-router.get("/pic-by-entity", verifyJWT, getPICByEntity);
+router.get(
+  "/pic-by-entity", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING),
+  getPICByEntity
+);
 
 // Extension and topup routes
-router.get("/:bookingId/overdue", verifyJWT, requireUser, checkBookingOverdue);
+router.get(
+  "/:bookingId/overdue", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING),
+  checkBookingOverdue
+);
 router.post(
   "/apply-topup",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(topupApplySchema),
   applyTopupToBooking
 );
-router.get("/:bookingId/late-fees", verifyJWT, requireUser, calculateLateFees);
+router.get(
+  "/:bookingId/late-fees", 
+  verifyJWT, 
+  requirePermission(Permission.READ_BOOKING),
+  calculateLateFees
+);
 router.post(
   "/pay-late-fees",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.MANAGE_BOOKING_PAYMENTS),
   validateRequest(lateFeePaymentSchema),
   payLateFees
 );
 
 // Confirm car return (PIC confirms car has been returned to parking lot)
-router.post("/confirm-return", verifyJWT, requirePIC, confirmCarReturn);
+router.post(
+  "/confirm-return", 
+  verifyJWT, 
+  requirePermission(Permission.CONFIRM_RETURN), 
+  confirmCarReturn
+);
 
 // Admin routes
 router.get(
   "/earnings/overview",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.VIEW_ANALYTICS),
   validateRequest(earningsOverviewSchema),
   getEarningsOverview
 );
@@ -215,14 +255,14 @@ router.get(
 router.post(
   "/pic-approve",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(bookingPICApprovalSchema),
   picApproveConfirmation
 );
 router.post(
   "/final-payment",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.MANAGE_BOOKING_PAYMENTS),
   validateRequest(bookingPaymentSchema),
   confirmFinalPayment
 );
@@ -231,7 +271,7 @@ router.post(
 router.post(
   "/verify-otp",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.VERIFY_OTP),
   validateRequest(bookingOTPVerificationSchema),
   verifyBookingOTP
 );
@@ -239,7 +279,7 @@ router.post(
 router.post(
   "/resend-otp",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(bookingResendOTPSchema),
   resendBookingOTP
 );
@@ -247,7 +287,7 @@ router.post(
 router.get(
   "/otp/:bookingId",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(bookingIdParamSchema),
   getBookingOTP
 );
@@ -256,9 +296,32 @@ router.get(
 router.put(
   "/reschedule/:bookingId",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest({ ...bookingIdParamSchema, ...bookingRescheduleSchema }),
   rescheduleBooking
+);
+
+// Generic booking routes (must come after all specific routes to avoid conflicts)
+router.get(
+  "/:id",
+  verifyJWT,
+  requirePermission(Permission.READ_BOOKING),
+  validateRequest(idParamSchema),
+  getbookingbyid
+);
+router.put(
+  "/:id",
+  verifyJWT,
+  requirePermission(Permission.UPDATE_BOOKING),
+  validateRequest({ ...idParamSchema, ...bookingCreateSchema }),
+  updatebooking
+);
+router.delete(
+  "/:id",
+  verifyJWT,
+  requirePermission(Permission.DELETE_BOOKING),
+  validateRequest(idParamSchema),
+  deletebooking
 );
 
 export default router;

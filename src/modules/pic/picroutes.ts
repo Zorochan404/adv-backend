@@ -1,5 +1,10 @@
 import express, { Router } from "express";
-import { verifyJWT, requirePIC } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  Permission, 
+  requirePIC 
+} from "../middleware/rbac";
 import { validateRequest, picDateFilterSchema } from "../utils/validation";
 import {
   getPickupCars,
@@ -13,7 +18,7 @@ const router: Router = Router();
 router.get(
   "/pickup-cars",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(picDateFilterSchema),
   getPickupCars
 );
@@ -22,7 +27,7 @@ router.get(
 router.get(
   "/pickup-car",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(picDateFilterSchema),
   getPickupCars
 );
@@ -30,7 +35,7 @@ router.get(
 router.get(
   "/dropoff-cars",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(picDateFilterSchema),
   getDropoffCars
 );
@@ -39,12 +44,17 @@ router.get(
 router.get(
   "/dropoff-car",
   verifyJWT,
-  requirePIC,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(picDateFilterSchema),
   getDropoffCars
 );
 
 // Get all cars under the PIC's parking lot
-router.get("/cars", verifyJWT, requirePIC, getAllCarsUnderPIC);
+router.get(
+  "/cars", 
+  verifyJWT, 
+  requirePermission(Permission.READ_CAR), 
+  getAllCarsUnderPIC
+);
 
 export default router;

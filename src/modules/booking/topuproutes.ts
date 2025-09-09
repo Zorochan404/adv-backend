@@ -8,7 +8,13 @@ import {
   updateTopup,
   deleteTopup,
 } from "./topupcontroller";
-import { verifyJWT, requireAdmin, requireUser } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  Permission, 
+  requireAdmin, 
+  requireUser 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -27,14 +33,14 @@ router.get("/active", getActiveTopups);
 router.post(
   "/apply",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_BOOKING),
   validateRequest(topupApplySchema),
   applyTopupToBooking
 );
 router.get(
   "/booking/:bookingId",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.READ_BOOKING),
   validateRequest(idParamSchema),
   getBookingTopups
 );
@@ -43,28 +49,28 @@ router.get(
 router.get(
   "/",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_ADVERTISEMENT),
   validateRequest(paginationQuerySchema),
   getAllTopups
 );
 router.post(
   "/",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_ADVERTISEMENT),
   validateRequest(topupCreateSchema),
   createTopup
 );
 router.put(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_ADVERTISEMENT),
   validateRequest({ ...idParamSchema, ...topupUpdateSchema }),
   updateTopup
 );
 router.delete(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.DELETE_ADVERTISEMENT),
   validateRequest(idParamSchema),
   deleteTopup
 );

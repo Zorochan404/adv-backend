@@ -13,7 +13,13 @@ import {
   updateParkingApprovalStatus,
   getUserParkingApprovalRequests,
 } from "./parkingcontroller";
-import { verifyJWT, requireAdmin } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  requireResourceAccess, 
+  Permission, 
+  requireAdmin 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -44,28 +50,28 @@ router.post(
 router.post(
   "/add",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_PARKING),
   validateRequest(parkingCreateSchema),
   createParking
 );
 router.get(
   "/getbyidadmin/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_PARKING),
   validateRequest(idParamSchema),
   getParkingByIDadmin
 );
 router.put(
   "/update/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_PARKING),
   validateRequest({ ...idParamSchema, ...parkingUpdateSchema }),
   updateParking
 );
 router.delete(
   "/delete/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.DELETE_PARKING),
   validateRequest(idParamSchema),
   deleteParking
 );
@@ -76,18 +82,24 @@ router.delete(
 router.post(
   "/submit-approval",
   verifyJWT,
+  requirePermission(Permission.CREATE_PARKING),
   validateRequest(parkingApprovalCreateSchema),
   submitParkingApproval
 );
 
 // User gets their parking approval requests
-router.get("/my-approval-requests", verifyJWT, getUserParkingApprovalRequests);
+router.get(
+  "/my-approval-requests", 
+  verifyJWT, 
+  requirePermission(Permission.READ_PARKING),
+  getUserParkingApprovalRequests
+);
 
 // Admin gets all parking approval requests
 router.get(
   "/approval-requests",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_PARKING),
   validateRequest(parkingApprovalFilterSchema),
   getParkingApprovalRequests
 );
@@ -96,7 +108,7 @@ router.get(
 router.put(
   "/approval-requests/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_PARKING),
   validateRequest({ ...idParamSchema, ...parkingApprovalUpdateSchema }),
   updateParkingApprovalStatus
 );

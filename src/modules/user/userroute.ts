@@ -14,12 +14,14 @@ import {
   getParkingInchargeByParkingId,
   updatePassword,
 } from "./usercontroller";
-import {
-  verifyJWT,
-  requireAdmin,
-  requireOwnerOrAdmin,
-  requireUser,
-} from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  requireResourceAccess, 
+  Permission, 
+  requireAdmin, 
+  requireUser 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -38,52 +40,77 @@ import {
 
 const router: Router = express.Router();
 
-// Public routes (no authentication required)
-router.get("/getuser/:id", validateRequest(idParamSchema), getUser);
-router.get("/getallusers", validateRequest(paginationQuerySchema), getAllUsers);
-router.get("/search", validateRequest(userSearchSchema), searchUser);
-router.post("/getuserbyrole", validateRequest(userRoleSchema), getUserbyrole);
+// Protected routes (require authentication)
+router.get(
+  "/getuser/:id", 
+  verifyJWT,
+  requirePermission(Permission.READ_USER),
+  requireResourceAccess({ userIdParam: "id", checkOwnership: true }),
+  validateRequest(idParamSchema), 
+  getUser
+);
+router.get(
+  "/getallusers", 
+  verifyJWT,
+  requirePermission(Permission.READ_USER),
+  validateRequest(paginationQuerySchema), 
+  getAllUsers
+);
+router.get(
+  "/search", 
+  verifyJWT,
+  requirePermission(Permission.READ_USER),
+  validateRequest(userSearchSchema), 
+  searchUser
+);
+router.post(
+  "/getuserbyrole", 
+  verifyJWT,
+  requirePermission(Permission.READ_USER),
+  validateRequest(userRoleSchema), 
+  getUserbyrole
+);
 
 // Admin-only routes (for user management)
 router.post(
   "/addparkingincharge",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_USER),
   validateRequest(userCreateSchema),
   addParkingIncharge
 );
 router.get(
   "/getusersbyvendor",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_USER),
   validateRequest(paginationQuerySchema),
   getusersbyvendor
 );
 router.post(
   "/addvendor",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_USER),
   validateRequest(userCreateSchema),
   addvendor
 );
 router.post(
   "/getparkinginchargebynumber",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_USER),
   validateRequest(parkingInchargeByNumberSchema),
   getParkingInchargeByNumber
 );
 router.post(
   "/assignparkingincharge",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_USER),
   validateRequest(parkingInchargeAssignSchema),
   assignParkingIncharge
 );
 router.get(
   "/getparkinginchargebyparkingid/:parkingid",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_USER),
   validateRequest(parkingIdParamSchema),
   getParkingInchargeByParkingId
 );
@@ -91,15 +118,17 @@ router.get(
 // Owner or Admin routes (for updating/deleting users)
 router.put(
   "/updateuser/:id",
-  // verifyJWT,
-  // requireOwnerOrAdmin,
+  verifyJWT,
+  requirePermission(Permission.UPDATE_USER),
+  requireResourceAccess({ userIdParam: "id", checkOwnership: true }),
   validateRequest({ ...idParamSchema, ...userUpdateSchema }),
   updateUser
 );
 router.delete(
   "/deleteuser/:id",
   verifyJWT,
-  requireOwnerOrAdmin,
+  requirePermission(Permission.DELETE_USER),
+  requireResourceAccess({ userIdParam: "id", checkOwnership: true }),
   validateRequest(idParamSchema),
   deleteUser
 );
@@ -108,7 +137,7 @@ router.delete(
 router.put(
   "/update-password",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_USER),
   validateRequest(passwordUpdateSchema),
   updatePassword
 );

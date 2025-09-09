@@ -469,6 +469,16 @@ export const deletebooking = asyncHandler(
       throw ApiError.badRequest("Invalid booking ID");
     }
 
+     // Get booking details before deletion to update car status
+    const bookingToDelete = await db.query.bookingsTable.findFirst({
+      where: (bookingsTable, { eq }) => eq(bookingsTable.id, parseInt(id)),
+    });
+
+    if (!bookingToDelete) {
+      throw ApiError.notFound("Booking not found");
+    }
+
+    // Delete the booking
     const booking = await db
       .delete(bookingsTable)
       .where(eq(bookingsTable.id, parseInt(id)))
@@ -478,7 +488,18 @@ export const deletebooking = asyncHandler(
       throw ApiError.notFound("Booking not found");
     }
 
-    return sendDeleted(res, "Booking deleted successfully");
+    // Make car available again if it was booked
+    if (bookingToDelete.carId) {
+      await db
+        .update(carModel)
+        .set({ 
+          status: "available",
+          isavailable: true 
+        })
+        .where(eq(carModel.id, bookingToDelete.carId));
+    }
+
+    return sendDeleted(res, "Booking deleted successfully. Car is now available for new bookings.");
   }
 );
 
@@ -706,6 +727,7 @@ export const confirmAdvancePayment = asyncHandler<AuthenticatedRequest>(
       booking.pickupDate || booking.startDate
     );
 
+    // Update booking status
     const updatedBooking = await db
       .update(bookingsTable)
       .set({
@@ -719,10 +741,19 @@ export const confirmAdvancePayment = asyncHandler<AuthenticatedRequest>(
       .where(eq(bookingsTable.id, bookingId))
       .returning();
 
+    // Update car status to "booked" and mark as unavailable
+    await db
+      .update(carModel)
+      .set({ 
+        status: "booked",
+        isavailable: false 
+      })
+      .where(eq(carModel.id, booking.carId));
+
     return sendUpdated(
       res,
       updatedBooking[0],
-      "Advance payment confirmed successfully. OTP generated for pickup verification."
+      "Advance payment confirmed successfully. OTP generated for pickup verification. Car has been locked for your booking."
     );
   }
 );
@@ -2007,6 +2038,15 @@ export const confirmCarPickup = asyncHandler<AuthenticatedRequest>(
       .where(eq(bookingsTable.id, bookingId))
       .returning();
 
+    // Keep car status as "booked" and unavailable during active rental
+    await db
+      .update(carModel)
+      .set({ 
+        status: "booked",
+        isavailable: false 
+      })
+      .where(eq(carModel.id, booking.carId));
+
     return sendUpdated(
       res,
       updatedBooking[0],
@@ -2226,20 +2266,8 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
     // Check if late fees are paid (if overdue)
     if (isOverdue && !booking.lateFeesPaid) {
       throw ApiError.badRequest(
-        "Late fees must be paid before car can be returned"
+        "Late fees must be paid before car can be returned. Please use the pay-late-fees endpoint first."
       );
-    }
-
-    // Calculate late fees if overdue and not already calculated
-    let finalLateFees = booking.lateFees || 0;
-    if (isOverdue && finalLateFees === 0) {
-      const diffInHours = Math.ceil(
-        (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
-      );
-      const dailyRate = booking.basePrice || 0;
-      const lateFeeRate = booking.car?.catalog?.lateFeeRate || 0.1;
-      const hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
-      finalLateFees = hourlyRate * diffInHours;
     }
 
     const updatedBooking = await db
@@ -2249,16 +2277,24 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
         status: "completed",
         returnCondition: returnCondition || "good",
         returnImages: returnImages || [],
-        lateFees: Math.round(finalLateFees * 100) / 100,
         returnComments: comments || null,
       })
       .where(eq(bookingsTable.id, bookingId))
       .returning();
 
+    // Make car available again after return
+    await db
+      .update(carModel)
+      .set({ 
+        status: "available",
+        isavailable: true 
+      })
+      .where(eq(carModel.id, booking.carId));
+
     const message =
-      booking.lateFees && booking.lateFees > 0
-        ? `Car return confirmed successfully. Late fees of ₹${booking.lateFees} have been applied.`
-        : "Car return confirmed successfully.";
+      booking.lateFees && booking.lateFees > 0 && booking.lateFeesPaid
+        ? `Car return confirmed successfully. Late fees of ₹${booking.lateFees} were already paid. Car is now available for new bookings.`
+        : "Car return confirmed successfully. Car is now available for new bookings.";
 
     return sendUpdated(res, updatedBooking[0], message);
   }
@@ -3326,5 +3362,251 @@ export const getDetailedBookingById = asyncHandler<AuthenticatedRequest>(
       },
       "Detailed booking retrieved successfully"
     );
+  }
+);
+
+// Admin function to get all bookings
+export const getAllBookings = asyncHandler<AuthenticatedRequest>(
+  async (req: Request, res: Response) => {
+    const user = (req as any).user;
+
+    if (!user) {
+      throw new ApiError(401, "Authentication required");
+    }
+
+    // Only admins can access all bookings
+    if (user.role !== 'admin') {
+      throw new ApiError(403, "Only admins can access all bookings");
+    }
+
+    try {
+      // Get all bookings with related data
+      const bookings = await db
+        .select({
+          // Booking fields
+          id: bookingsTable.id,
+          userId: bookingsTable.userId,
+          carId: bookingsTable.carId,
+          startDate: bookingsTable.startDate,
+          endDate: bookingsTable.endDate,
+          pickupDate: bookingsTable.pickupDate,
+          actualPickupDate: bookingsTable.actualPickupDate,
+          actualDropoffDate: bookingsTable.actualDropoffDate,
+          originalPickupDate: bookingsTable.originalPickupDate,
+          rescheduleCount: bookingsTable.rescheduleCount,
+          maxRescheduleCount: bookingsTable.maxRescheduleCount,
+          basePrice: bookingsTable.basePrice,
+          advanceAmount: bookingsTable.advanceAmount,
+          remainingAmount: bookingsTable.remainingAmount,
+          totalPrice: bookingsTable.totalPrice,
+          discountAmount: bookingsTable.discountAmount,
+          insuranceAmount: bookingsTable.insuranceAmount,
+          extensionPrice: bookingsTable.extensionPrice,
+          extensionTill: bookingsTable.extensionTill,
+          extensionTime: bookingsTable.extensionTime,
+          lateFees: bookingsTable.lateFees,
+          lateFeesPaid: bookingsTable.lateFeesPaid,
+          lateFeesPaymentReferenceId: bookingsTable.lateFeesPaymentReferenceId,
+          lateFeesPaidAt: bookingsTable.lateFeesPaidAt,
+          returnCondition: bookingsTable.returnCondition,
+          returnImages: bookingsTable.returnImages,
+          returnComments: bookingsTable.returnComments,
+          status: bookingsTable.status,
+          confirmationStatus: bookingsTable.confirmationStatus,
+          advancePaymentStatus: bookingsTable.advancePaymentStatus,
+          finalPaymentStatus: bookingsTable.finalPaymentStatus,
+          advancePaymentReferenceId: bookingsTable.advancePaymentReferenceId,
+          finalPaymentReferenceId: bookingsTable.finalPaymentReferenceId,
+          carConditionImages: bookingsTable.carConditionImages,
+          toolImages: bookingsTable.toolImages,
+          tools: bookingsTable.tools,
+          picApproved: bookingsTable.picApproved,
+          picApprovedAt: bookingsTable.picApprovedAt,
+          picApprovedBy: bookingsTable.picApprovedBy,
+          picComments: bookingsTable.picComments,
+          otpCode: bookingsTable.otpCode,
+          otpExpiresAt: bookingsTable.otpExpiresAt,
+          otpVerified: bookingsTable.otpVerified,
+          otpVerifiedAt: bookingsTable.otpVerifiedAt,
+          otpVerifiedBy: bookingsTable.otpVerifiedBy,
+          userConfirmed: bookingsTable.userConfirmed,
+          userConfirmedAt: bookingsTable.userConfirmedAt,
+          pickupParkingId: bookingsTable.pickupParkingId,
+          dropoffParkingId: bookingsTable.dropoffParkingId,
+          deliveryType: bookingsTable.deliveryType,
+          deliveryAddress: bookingsTable.deliveryAddress,
+          deliveryCharges: bookingsTable.deliveryCharges,
+          createdAt: bookingsTable.createdAt,
+          updatedAt: bookingsTable.updatedAt,
+          
+          // Car fields
+          car: {
+            id: carModel.id,
+            name: carModel.name,
+            number: carModel.number,
+            vendorid: carModel.vendorid,
+            parkingid: carModel.parkingid,
+            color: carModel.color,
+            price: carModel.price,
+            discountprice: carModel.discountprice,
+            inmaintainance: carModel.inmaintainance,
+            isavailable: carModel.isavailable,
+            rcnumber: carModel.rcnumber,
+            rcimg: carModel.rcimg,
+            pollutionimg: carModel.pollutionimg,
+            insuranceimg: carModel.insuranceimg,
+            images: carModel.images,
+            catalogId: carModel.catalogId,
+            status: carModel.status,
+            createdAt: carModel.createdAt,
+            updatedAt: carModel.updatedAt,
+          },
+          
+          // User fields
+          user: {
+            id: UserTable.id,
+            name: UserTable.name,
+            avatar: UserTable.avatar,
+            age: UserTable.age,
+            number: UserTable.number,
+            email: UserTable.email,
+            aadharNumber: UserTable.aadharNumber,
+            aadharimg: UserTable.aadharimg,
+            dlNumber: UserTable.dlNumber,
+            dlimg: UserTable.dlimg,
+            passportNumber: UserTable.passportNumber,
+            passportimg: UserTable.passportimg,
+            lat: UserTable.lat,
+            lng: UserTable.lng,
+            locality: UserTable.locality,
+            city: UserTable.city,
+            state: UserTable.state,
+            country: UserTable.country,
+            pincode: UserTable.pincode,
+            role: UserTable.role,
+            isverified: UserTable.isverified,
+            parkingid: UserTable.parkingid,
+            createdAt: UserTable.createdAt,
+            updatedAt: UserTable.updatedAt,
+          },
+          
+          // Pickup parking fields
+          pickupParking: {
+            id: sql`pickup_parking.id`.as('pickup_parking_id'),
+            name: sql`pickup_parking.name`.as('pickup_parking_name'),
+            locality: sql`pickup_parking.locality`.as('pickup_parking_locality'),
+            city: sql`pickup_parking.city`.as('pickup_parking_city'),
+            state: sql`pickup_parking.state`.as('pickup_parking_state'),
+            country: sql`pickup_parking.country`.as('pickup_parking_country'),
+            pincode: sql`pickup_parking.pincode`.as('pickup_parking_pincode'),
+            capacity: sql`pickup_parking.capacity`.as('pickup_parking_capacity'),
+            mainimg: sql`pickup_parking.mainimg`.as('pickup_parking_mainimg'),
+            images: sql`pickup_parking.images`.as('pickup_parking_images'),
+            lat: sql`pickup_parking.lat`.as('pickup_parking_lat'),
+            lng: sql`pickup_parking.lng`.as('pickup_parking_lng'),
+            createdAt: sql`pickup_parking.created_at`.as('pickup_parking_createdAt'),
+            updatedAt: sql`pickup_parking.updated_at`.as('pickup_parking_updatedAt'),
+          },
+          
+          // Dropoff parking fields
+          dropoffParking: {
+            id: sql`dropoff_parking.id`.as('dropoff_parking_id'),
+            name: sql`dropoff_parking.name`.as('dropoff_parking_name'),
+            locality: sql`dropoff_parking.locality`.as('dropoff_parking_locality'),
+            city: sql`dropoff_parking.city`.as('dropoff_parking_city'),
+            state: sql`dropoff_parking.state`.as('dropoff_parking_state'),
+            country: sql`dropoff_parking.country`.as('dropoff_parking_country'),
+            pincode: sql`dropoff_parking.pincode`.as('dropoff_parking_pincode'),
+            capacity: sql`dropoff_parking.capacity`.as('dropoff_parking_capacity'),
+            mainimg: sql`dropoff_parking.mainimg`.as('dropoff_parking_mainimg'),
+            images: sql`dropoff_parking.images`.as('dropoff_parking_images'),
+            lat: sql`dropoff_parking.lat`.as('dropoff_parking_lat'),
+            lng: sql`dropoff_parking.lng`.as('dropoff_parking_lng'),
+            createdAt: sql`dropoff_parking.created_at`.as('dropoff_parking_createdAt'),
+            updatedAt: sql`dropoff_parking.updated_at`.as('dropoff_parking_updatedAt'),
+          },
+        })
+        .from(bookingsTable)
+        .leftJoin(carModel, eq(bookingsTable.carId, carModel.id))
+        .leftJoin(UserTable, eq(bookingsTable.userId, UserTable.id))
+        .leftJoin(
+          sql`${parkingTable} as pickup_parking`,
+          sql`${bookingsTable.pickupParkingId} = pickup_parking.id`
+        )
+        .leftJoin(
+          sql`${parkingTable} as dropoff_parking`,
+          sql`${bookingsTable.dropoffParkingId} = dropoff_parking.id`
+        )
+        .orderBy(desc(bookingsTable.createdAt));
+
+      // Transform the data to match the expected format
+      const transformedBookings = bookings.map(bookingData => ({
+        id: bookingData.id,
+        userId: bookingData.userId,
+        carId: bookingData.carId,
+        startDate: bookingData.startDate,
+        endDate: bookingData.endDate,
+        pickupDate: bookingData.pickupDate,
+        actualPickupDate: bookingData.actualPickupDate,
+        actualDropoffDate: bookingData.actualDropoffDate,
+        originalPickupDate: bookingData.originalPickupDate,
+        rescheduleCount: bookingData.rescheduleCount,
+        maxRescheduleCount: bookingData.maxRescheduleCount,
+        basePrice: bookingData.basePrice,
+        advanceAmount: bookingData.advanceAmount,
+        remainingAmount: bookingData.remainingAmount,
+        totalPrice: bookingData.totalPrice,
+        discountAmount: bookingData.discountAmount,
+        insuranceAmount: bookingData.insuranceAmount,
+        extensionPrice: bookingData.extensionPrice,
+        extensionTill: bookingData.extensionTill,
+        extensionTime: bookingData.extensionTime,
+        lateFees: bookingData.lateFees,
+        lateFeesPaid: bookingData.lateFeesPaid,
+        lateFeesPaymentReferenceId: bookingData.lateFeesPaymentReferenceId,
+        lateFeesPaidAt: bookingData.lateFeesPaidAt,
+        returnCondition: bookingData.returnCondition,
+        returnImages: bookingData.returnImages,
+        returnComments: bookingData.returnComments,
+        status: bookingData.status,
+        confirmationStatus: bookingData.confirmationStatus,
+        advancePaymentStatus: bookingData.advancePaymentStatus,
+        finalPaymentStatus: bookingData.finalPaymentStatus,
+        advancePaymentReferenceId: bookingData.advancePaymentReferenceId,
+        finalPaymentReferenceId: bookingData.finalPaymentReferenceId,
+        carConditionImages: bookingData.carConditionImages,
+        toolImages: bookingData.toolImages,
+        tools: cleanToolsData(bookingData.tools),
+        picApproved: bookingData.picApproved,
+        picApprovedAt: bookingData.picApprovedAt,
+        picApprovedBy: bookingData.picApprovedBy,
+        picComments: bookingData.picComments,
+        otpCode: bookingData.otpCode,
+        otpExpiresAt: bookingData.otpExpiresAt,
+        otpVerified: bookingData.otpVerified,
+        otpVerifiedAt: bookingData.otpVerifiedAt,
+        otpVerifiedBy: bookingData.otpVerifiedBy,
+        userConfirmed: bookingData.userConfirmed,
+        userConfirmedAt: bookingData.userConfirmedAt,
+        pickupParkingId: bookingData.pickupParkingId,
+        dropoffParkingId: bookingData.dropoffParkingId,
+        deliveryType: bookingData.deliveryType,
+        deliveryAddress: bookingData.deliveryAddress,
+        deliveryCharges: bookingData.deliveryCharges,
+        createdAt: bookingData.createdAt,
+        updatedAt: bookingData.updatedAt,
+        car: bookingData.car,
+        user: bookingData.user,
+        pickupParking: bookingData.pickupParking,
+        dropoffParking: bookingData.dropoffParking,
+        // Add paymentStatus field for compatibility with frontend
+        paymentStatus: bookingData.finalPaymentStatus,
+      }));
+
+      sendSuccess(res, transformedBookings, "All bookings retrieved successfully");
+    } catch (error) {
+      console.error("Error fetching all bookings:", error);
+      throw new ApiError(500, "Failed to fetch bookings");
+    }
   }
 );

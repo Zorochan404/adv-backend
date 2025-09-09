@@ -6,6 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { and, eq, like, or, sql, gte, lte, asc, desc } from "drizzle-orm";
 import { reviewModel } from "../review/reviewmodel";
 import { parkingTable } from "../parking/parkingmodel";
+import { bookingsTable } from "../booking/bookingmodel";
 import {
   sendSuccess,
   sendItem,
@@ -193,7 +194,9 @@ export const getNearestAvailableCars = asyncHandler(
                 )) <= ${radius}
             `,
             eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false)
+            eq(carModel.inmaintainance, false),
+            eq(carModel.status, "available"),
+            eq(carModel.status, "available")
           )
         );
 
@@ -254,7 +257,8 @@ export const getNearestAvailableCars = asyncHandler(
                 )) <= ${radius}
             `,
             eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false)
+            eq(carModel.inmaintainance, false),
+            eq(carModel.status, "available")
           )
         )
         .orderBy(sql`parking_distance`)
@@ -321,7 +325,8 @@ export const getNearestPopularCars = asyncHandler(
                 )) <= ${radius}
             `,
             eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false)
+            eq(carModel.inmaintainance, false),
+            eq(carModel.status, "available")
           )
         );
 
@@ -393,7 +398,8 @@ export const getNearestPopularCars = asyncHandler(
                 )) <= ${radius}
             `,
             eq(carModel.isavailable, true),
-            eq(carModel.inmaintainance, false)
+            eq(carModel.inmaintainance, false),
+            eq(carModel.status, "available")
           )
         )
         .groupBy(
@@ -1086,6 +1092,22 @@ export const filterCars = asyncHandler(async (req: Request, res: Response) => {
     }
     if (filters.category) {
       conditions.push(eq(carCatalogTable.category, filters.category as any));
+    }
+
+    // Enhanced availability check: Exclude cars with active bookings
+    // This provides an extra safety layer in case car status wasn't updated properly
+    const activeBookingCarIds = await db
+      .select({ carId: bookingsTable.carId })
+      .from(bookingsTable)
+      .where(
+        sql`${bookingsTable.status} IN ('pending', 'advance_paid', 'confirmed', 'active')`
+      );
+
+    if (activeBookingCarIds.length > 0) {
+      const bookedCarIds = activeBookingCarIds.map(b => b.carId);
+      conditions.push(
+        sql`${carModel.id} NOT IN (${bookedCarIds.join(',')})`
+      );
     }
 
     // Get total count first

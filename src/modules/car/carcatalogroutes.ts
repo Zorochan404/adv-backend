@@ -10,7 +10,12 @@ import {
   updateCarCatalogLateFees,
   getAllCarCategories,
 } from "./carcatalogcontroller";
-import { verifyJWT, requireAdmin } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  Permission, 
+  requireAdmin 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -31,36 +36,41 @@ router.get("/:id", validateRequest(idParamSchema), getCarCatalogById);
 router.post(
   "/create",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_CAR),
   validateRequest(carCatalogCreateSchema),
   createCarCatalog
 );
 router.get(
   "/admin/all",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_CAR),
   validateRequest({ ...carCatalogFilterSchema, ...paginationQuerySchema }),
   getAllCarCatalog
 );
 router.put(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_CAR),
   validateRequest({ ...idParamSchema, ...carCatalogUpdateSchema }),
   updateCarCatalog
 );
 router.delete(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.DELETE_CAR),
   validateRequest(idParamSchema),
   deleteCarCatalog
 );
-router.post("/seed", verifyJWT, requireAdmin, seedCarCatalog);
+router.post(
+  "/seed", 
+  verifyJWT, 
+  requirePermission(Permission.SEED_DATA), 
+  seedCarCatalog
+);
 router.post(
   "/update-late-fees",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_CAR),
   updateCarCatalogLateFees
 );
 

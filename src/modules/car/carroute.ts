@@ -14,12 +14,13 @@ import {
   deleteCar,
 } from "./carcontroller";
 import { seedInsuranceAmounts } from "./seedInsurance";
-import {
-  verifyJWT,
-  requireAdmin,
-  requireVendor,
-  requireVendorOrAdmin,
-} from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  requireResourceAccess, 
+  Permission, 
+  requireAdmin 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -65,20 +66,20 @@ router.get("/filter", validateRequest(carFilterSchema), filterCars);
 router.get(
   "/getcar",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_CAR),
   validateRequest(paginationQuerySchema),
   getCar
 );
 router.post(
   "/seed-insurance",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.SEED_DATA),
   seedInsuranceAmounts
 );
 router.post(
   "/add",
   verifyJWT,
-  requireVendorOrAdmin,
+  requirePermission(Permission.CREATE_CAR),
   validateRequest(carCreateSchema),
   createCar
 );
@@ -90,11 +91,19 @@ router.get(
   validateRequest({ ...idParamSchema, ...paginationQuerySchema }),
   getCarByParkingId
 );
-router.put("/:id", verifyJWT, updateCar);
+router.put(
+  "/:id", 
+  verifyJWT, 
+  requirePermission(Permission.UPDATE_CAR),
+  requireResourceAccess({ checkOwnership: true }),
+  validateRequest({ ...idParamSchema, ...carUpdateSchema }),
+  updateCar
+);
 router.delete(
   "/delete/:id",
   verifyJWT,
-  requireVendorOrAdmin,
+  requirePermission(Permission.DELETE_CAR),
+  requireResourceAccess({ checkOwnership: true }),
   validateRequest(idParamSchema),
   deleteCar
 );

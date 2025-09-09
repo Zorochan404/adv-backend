@@ -11,6 +11,10 @@ import jwt from "jsonwebtoken";
 import { sql } from "drizzle-orm";
 
 export const loginuser = asyncHandler(async (req: Request, res: Response) => {
+  // Add deprecation warning header
+  res.set('X-Deprecated-Endpoint', 'true');
+  res.set('X-Deprecation-Message', 'This endpoint is deprecated. Use /api/v1/auth/v2/login with authMethod: "otp" instead.');
+  
   const { number, otp, password } = req.body;
 
   // Validate required fields
@@ -148,6 +152,10 @@ export const loginuser = asyncHandler(async (req: Request, res: Response) => {
 
 export const registerAdmin = asyncHandler(
   async (req: Request, res: Response) => {
+    // Add deprecation warning header
+    res.set('X-Deprecated-Endpoint', 'true');
+    res.set('X-Deprecation-Message', 'This endpoint is deprecated. Use /api/v1/auth/v2/staff/register instead.');
+    
     const {
       number,
       password,
@@ -263,6 +271,10 @@ export const registerAdmin = asyncHandler(
 );
 
 export const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
+  // Add deprecation warning header
+  res.set('X-Deprecated-Endpoint', 'true');
+  res.set('X-Deprecation-Message', 'This endpoint is deprecated. Use /api/v1/auth/v2/login with authMethod: "password" instead.');
+  
   const { number, password } = req.body;
 
   // Validate required fields

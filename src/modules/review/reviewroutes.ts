@@ -7,7 +7,12 @@ import {
   updatereview,
   deletereview,
 } from "./reviewcontroller";
-import { verifyJWT, requireUser } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  requireResourceAccess, 
+  Permission 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -37,7 +42,7 @@ router.get(
 router.post(
   "/addreview/:carid",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.CREATE_REVIEW),
   validateRequest({ ...carIdParamSchema, ...reviewCreateSchema }),
   addreview
 );
@@ -46,14 +51,16 @@ router.post(
 router.put(
   "/updatereview/:reviewid",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.UPDATE_REVIEW),
+  requireResourceAccess({ userIdParam: "userId", checkOwnership: true }),
   validateRequest({ ...reviewIdParamSchema, ...reviewUpdateSchema }),
   updatereview
 );
 router.delete(
   "/deletereview/:reviewid",
   verifyJWT,
-  requireUser,
+  requirePermission(Permission.DELETE_REVIEW),
+  requireResourceAccess({ userIdParam: "userId", checkOwnership: true }),
   validateRequest(reviewIdParamSchema),
   deletereview
 );

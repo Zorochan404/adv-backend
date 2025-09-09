@@ -10,7 +10,12 @@ import {
   incrementClickCount,
   getAdvertisementStats,
 } from "./advertisementcontroller";
-import { verifyJWT, requireAdmin } from "../middleware/auth";
+import { verifyJWT } from "../middleware/auth";
+import { 
+  requirePermission, 
+  Permission, 
+  requireAdmin 
+} from "../middleware/rbac";
 import {
   validateRequest,
   idParamSchema,
@@ -33,7 +38,7 @@ router.get(
 router.post(
   "/create",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.CREATE_ADVERTISEMENT),
   validateRequest(advertisementCreateSchema),
   createAdvertisement
 );
@@ -42,22 +47,37 @@ router.post(
 router.get(
   "/admin/all",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_ADVERTISEMENT),
   validateRequest({ ...advertisementFilterSchema, ...paginationQuerySchema }),
   getAllAdvertisements
 );
 
-router.get("/admin/stats", verifyJWT, requireAdmin, getAdvertisementStats);
+router.get(
+  "/admin/stats", 
+  verifyJWT, 
+  requirePermission(Permission.VIEW_ANALYTICS), 
+  getAdvertisementStats
+);
 
-// Parameterized routes (must come after specific routes)
-router.post("/:id/view", validateRequest(idParamSchema), incrementViewCount);
+// Parameterized routes (must come after specific routes) - require auth to prevent abuse
+router.post(
+  "/:id/view", 
+  verifyJWT,
+  validateRequest(idParamSchema), 
+  incrementViewCount
+);
 
-router.post("/:id/click", validateRequest(idParamSchema), incrementClickCount);
+router.post(
+  "/:id/click", 
+  verifyJWT,
+  validateRequest(idParamSchema), 
+  incrementClickCount
+);
 
 router.get(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.READ_ADVERTISEMENT),
   validateRequest(idParamSchema),
   getAdvertisementById
 );
@@ -65,7 +85,7 @@ router.get(
 router.put(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.UPDATE_ADVERTISEMENT),
   validateRequest({ ...idParamSchema, ...advertisementUpdateSchema }),
   updateAdvertisement
 );
@@ -73,7 +93,7 @@ router.put(
 router.delete(
   "/:id",
   verifyJWT,
-  requireAdmin,
+  requirePermission(Permission.DELETE_ADVERTISEMENT),
   validateRequest(idParamSchema),
   deleteAdvertisement
 );
