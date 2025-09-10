@@ -31,6 +31,12 @@ export enum Permission {
   DELETE_BOOKING = "delete:booking",
   MANAGE_BOOKING_PAYMENTS = "manage:booking:payments",
   
+  // Payment management
+  CREATE_PAYMENT = "create:payment",
+  READ_PAYMENT = "read:payment",
+  UPDATE_PAYMENT = "update:payment",
+  DELETE_PAYMENT = "delete:payment",
+  
   // PIC operations
   CONFIRM_PICKUP = "confirm:pickup",
   CONFIRM_RETURN = "confirm:return",

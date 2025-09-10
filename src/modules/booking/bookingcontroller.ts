@@ -2,10 +2,11 @@ import { Request, Response } from "express";
 import { db } from "../../drizzle/db";
 import { bookingsTable } from "./bookingmodel";
 import { asyncHandler } from "../utils/asyncHandler";
-import { eq, between, and, gte, lte, sql, inArray, desc } from "drizzle-orm";
+import { eq, between, and, gte, lte, sql, inArray, desc, isNotNull } from "drizzle-orm";
 import { carModel } from "../car/carmodel";
 import { parkingTable } from "../parking/parkingmodel";
 import { couponTable, couponStatusEnum } from "../coupon/couponmodel";
+import { paymentsTable } from "../payment/paymentmodel";
 import { ApiError } from "../utils/apiError";
 import {
   sendSuccess,
@@ -257,9 +258,7 @@ export const createBooking = asyncHandler<AuthenticatedRequest>(
         remainingAmount,
         totalPrice,
         status: "pending",
-        advancePaymentStatus: "pending",
         confirmationStatus: "pending",
-        finalPaymentStatus: "pending",
         deliveryCharges,
         // Add coupon and insurance fields
         couponId: appliedCouponId,
@@ -717,7 +716,7 @@ export const confirmAdvancePayment = asyncHandler<AuthenticatedRequest>(
       );
     }
 
-    if (booking.advancePaymentStatus === "paid") {
+    if (booking.advancePaymentId !== null) {
       throw ApiError.conflict("Advance payment already confirmed");
     }
 
@@ -727,177 +726,48 @@ export const confirmAdvancePayment = asyncHandler<AuthenticatedRequest>(
       booking.pickupDate || booking.startDate
     );
 
+    // Create payment record
+    const advancePayment = await db
+      .insert(paymentsTable)
+      .values({
+        paymentId: `adv_${Date.now()}_${bookingId}`,
+        referenceId: paymentReferenceId,
+        type: "advance",
+        status: "completed",
+        method: "razorpay",
+        amount: booking.advanceAmount,
+        netAmount: booking.advanceAmount,
+        userId: booking.userId,
+        bookingId: bookingId,
+        completedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
     // Update booking status
     const updatedBooking = await db
       .update(bookingsTable)
       .set({
-        advancePaymentStatus: "paid",
-        advancePaymentReferenceId: paymentReferenceId,
+        advancePaymentId: advancePayment[0].id,
         status: "advance_paid",
         otpCode: otpCode,
         otpExpiresAt: otpExpiresAt,
         otpVerified: false,
-      })
-      .where(eq(bookingsTable.id, bookingId))
-      .returning();
-
-    // Update car status to "booked" and mark as unavailable
-    await db
-      .update(carModel)
-      .set({ 
-        status: "booked",
-        isavailable: false 
-      })
-      .where(eq(carModel.id, booking.carId));
-
-    return sendUpdated(
-      res,
-      updatedBooking[0],
-      "Advance payment confirmed successfully. OTP generated for pickup verification. Car has been locked for your booking."
-    );
-  }
-);
-
-export const submitConfirmationRequest = asyncHandler<AuthenticatedRequest>(
-  async (req: AuthenticatedRequest, res: Response) => {
-    const { bookingId, carConditionImages, tools, toolImages } = req.body;
-
-    if (!bookingId) {
-      throw ApiError.badRequest("Booking ID is required");
-    }
-
-    if (!carConditionImages || !Array.isArray(carConditionImages)) {
-      throw ApiError.badRequest("Car condition images are required");
-    }
-
-    const booking = await db.query.bookingsTable.findFirst({
-      where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
-    });
-
-    if (!booking) {
-      throw ApiError.notFound("Booking not found");
-    }
-
-    if (booking.userId !== req.user.id) {
-      throw ApiError.forbidden(
-        "You can only submit confirmation requests for your own bookings"
-      );
-    }
-
-    if (booking.advancePaymentStatus !== "paid") {
-      throw ApiError.badRequest(
-        "Advance payment must be completed before submitting confirmation request"
-      );
-    }
-
-    const updatedBooking = await db
-      .update(bookingsTable)
-      .set({
-        carConditionImages: carConditionImages,
-        tools: tools || [],
-        toolImages: toolImages || [],
-        userConfirmed: true,
-        userConfirmedAt: new Date(),
-        confirmationStatus: "pending_approval",
+        updatedAt: new Date(),
       })
       .where(eq(bookingsTable.id, bookingId))
       .returning();
 
     return sendUpdated(
       res,
-      updatedBooking[0],
-      "Confirmation request submitted successfully"
-    );
-  }
-);
-
-export const picApproveConfirmation = asyncHandler<AuthenticatedRequest>(
-  async (req: AuthenticatedRequest, res: Response) => {
-    const { bookingId, approved, comments } = req.body;
-
-    if (!bookingId || approved === undefined) {
-      throw ApiError.badRequest("Booking ID and approval status are required");
-    }
-
-    const booking = await db.query.bookingsTable.findFirst({
-      where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
-    });
-
-    if (!booking) {
-      throw ApiError.notFound("Booking not found");
-    }
-
-    if (booking.confirmationStatus !== "pending_approval") {
-      throw ApiError.badRequest("Booking is not pending approval");
-    }
-
-    const updatedBooking = await db
-      .update(bookingsTable)
-      .set({
-        picApproved: approved,
-        picApprovedAt: new Date(),
-        picApprovedBy: req.user.id,
-        picComments: comments || null,
-        confirmationStatus: approved ? "approved" : "rejected",
-      })
-      .where(eq(bookingsTable.id, bookingId))
-      .returning();
-
-    const message = approved
-      ? "Booking approved successfully"
-      : "Booking rejected";
-    return sendUpdated(res, updatedBooking[0], message);
-  }
-);
-
-export const confirmFinalPayment = asyncHandler<AuthenticatedRequest>(
-  async (req: AuthenticatedRequest, res: Response) => {
-    const { bookingId, paymentReferenceId } = req.body;
-
-    if (!bookingId || !paymentReferenceId) {
-      throw ApiError.badRequest(
-        "Booking ID and payment reference ID are required"
-      );
-    }
-
-    const booking = await db.query.bookingsTable.findFirst({
-      where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
-    });
-
-    if (!booking) {
-      throw ApiError.notFound("Booking not found");
-    }
-
-    if (booking.userId !== req.user.id) {
-      throw ApiError.forbidden(
-        "You can only confirm payments for your own bookings"
-      );
-    }
-
-    if (booking.confirmationStatus !== "approved") {
-      throw ApiError.badRequest(
-        "Booking must be approved before final payment"
-      );
-    }
-
-    if (booking.finalPaymentStatus === "paid") {
-      throw ApiError.conflict("Final payment already confirmed");
-    }
-
-    const updatedBooking = await db
-      .update(bookingsTable)
-      .set({
-        finalPaymentStatus: "paid",
-        finalPaymentReferenceId: paymentReferenceId,
-        status: "confirmed",
-      })
-      .where(eq(bookingsTable.id, bookingId))
-      .returning();
-
-    return sendUpdated(
-      res,
-      updatedBooking[0],
-      "Final payment confirmed successfully"
+      {
+        ...updatedBooking[0],
+        advancePaymentStatus: "paid",
+        otpCode: otpCode,
+        otpExpiresAt: otpExpiresAt,
+      },
+      "Advance payment confirmed successfully"
     );
   }
 );
@@ -1115,7 +985,7 @@ export const resendBookingOTP = asyncHandler<AuthenticatedRequest>(
     const bookingData = result;
 
     // Check if user owns this booking
-    if (bookingData.userId !== req.user.id) {
+    if (bookingData.userId !== Number(req.user.id)) {
       throw ApiError.forbidden("You can only resend OTP for your own bookings");
     }
 
@@ -1178,7 +1048,7 @@ export const getBookingOTP = asyncHandler<AuthenticatedRequest>(
     const bookingData = result;
 
     // Check if user owns this booking
-    if (bookingData.userId !== req.user.id) {
+    if (bookingData.userId !== Number(req.user.id)) {
       throw ApiError.forbidden("You can only view OTP for your own bookings");
     }
 
@@ -1574,6 +1444,161 @@ export const getPICConfirmationRequests = asyncHandler<AuthenticatedRequest>(
   }
 );
 
+export const submitConfirmationRequest = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { bookingId, carConditionImages, toolImages, tools } = req.body;
+
+    // Get booking details
+    const booking = await db.query.bookingsTable.findFirst({
+      where: eq(bookingsTable.id, bookingId),
+    });
+
+    if (!booking) {
+      throw ApiError.notFound("Booking not found");
+    }
+
+    // Check if user owns this booking
+    if (booking.userId !== Number(req.user.id)) {
+      throw ApiError.forbidden(
+        "You can only submit confirmation requests for your own bookings"
+      );
+    }
+
+    // Check if advance payment is completed
+    if (booking.advancePaymentId === null) {
+      throw ApiError.badRequest(
+        "Advance payment must be completed before submitting confirmation request"
+      );
+    }
+
+    // Update booking with confirmation data
+    const updatedBooking = await db
+      .update(bookingsTable)
+      .set({
+        carConditionImages: carConditionImages || [],
+        toolImages: toolImages || [],
+        tools: tools || [],
+        userConfirmed: true,
+        userConfirmedAt: new Date(),
+        confirmationStatus: "pending_approval",
+        updatedAt: new Date(),
+      })
+      .where(eq(bookingsTable.id, bookingId))
+      .returning();
+
+    return sendSuccess(
+      res,
+      updatedBooking[0],
+      "Confirmation request submitted successfully"
+    );
+  }
+);
+
+export const picApproveConfirmation = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { bookingId, approved, comments } = req.body;
+
+    // Get booking details
+    const booking = await db.query.bookingsTable.findFirst({
+      where: eq(bookingsTable.id, bookingId),
+    });
+
+    if (!booking) {
+      throw ApiError.notFound("Booking not found");
+    }
+
+    // Check if PIC belongs to the parking lot where the car is located
+    if (booking.pickupParkingId !== (req.user as any).parkingid) {
+      throw ApiError.forbidden(
+        "You can only approve confirmations for cars in your assigned parking lot"
+      );
+    }
+
+    // Update booking with PIC approval
+    const updatedBooking = await db
+      .update(bookingsTable)
+      .set({
+        picApproved: approved,
+        picApprovedAt: new Date(),
+        picApprovedBy: Number(req.user.id),
+        picComments: comments || null,
+        confirmationStatus: approved ? "approved" : "rejected",
+        updatedAt: new Date(),
+      })
+      .where(eq(bookingsTable.id, bookingId))
+      .returning();
+
+    return sendSuccess(
+      res,
+      updatedBooking[0],
+      `Confirmation ${approved ? "approved" : "rejected"} successfully`
+    );
+  }
+);
+
+export const confirmFinalPayment = asyncHandler<AuthenticatedRequest>(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { bookingId, paymentReferenceId } = req.body;
+
+    // Get booking details
+    const booking = await db.query.bookingsTable.findFirst({
+      where: eq(bookingsTable.id, bookingId),
+    });
+
+    if (!booking) {
+      throw ApiError.notFound("Booking not found");
+    }
+
+    // Check if user owns this booking
+    if (booking.userId !== Number(req.user.id)) {
+      throw ApiError.forbidden(
+        "You can only confirm payments for your own bookings"
+      );
+    }
+
+    if (booking.finalPaymentId !== null) {
+      throw ApiError.conflict("Final payment already confirmed");
+    }
+
+    // Create payment record
+    const finalPayment = await db
+      .insert(paymentsTable)
+      .values({
+        paymentId: `fin_${Date.now()}_${bookingId}`,
+        referenceId: paymentReferenceId,
+        type: "final",
+        status: "completed",
+        method: "razorpay",
+        amount: booking.remainingAmount,
+        netAmount: booking.remainingAmount,
+        userId: booking.userId,
+        bookingId: bookingId,
+        completedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    const updatedBooking = await db
+      .update(bookingsTable)
+      .set({
+        finalPaymentId: finalPayment[0].id,
+        status: "confirmed",
+      })
+      .where(eq(bookingsTable.id, bookingId))
+      .returning();
+
+    return sendUpdated(
+      res,
+      {
+        ...updatedBooking[0],
+        finalPaymentStatus: "paid",
+      },
+      "Final payment confirmed successfully"
+    );
+  }
+);
+
 export const resubmitConfirmationRequest = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
     const {
@@ -1614,7 +1639,7 @@ export const resubmitConfirmationRequest = asyncHandler<AuthenticatedRequest>(
     }
 
     // Check if advance payment is completed
-    if (booking.advancePaymentStatus !== "paid") {
+    if (booking.advancePaymentId === null) {
       throw ApiError.badRequest(
         "Advance payment must be completed before resubmitting confirmation request"
       );
@@ -1756,8 +1781,8 @@ const calculateBookingStatus = (booking: any) => {
     confirmationStatus: booking.confirmationStatus,
 
     // Payment status
-    advancePaymentStatus: booking.advancePaymentStatus,
-    finalPaymentStatus: booking.finalPaymentStatus,
+    advancePaymentStatus: booking.advancePaymentId !== null ? "paid" : "pending",
+    finalPaymentStatus: booking.finalPaymentId !== null ? "paid" : "pending",
 
     // Progress tracking
     progress: {
@@ -1781,7 +1806,7 @@ const calculateBookingStatus = (booking: any) => {
   };
 
   // 1. Advance payment - always show
-  if (booking.advancePaymentStatus === "paid") {
+  if (booking.advancePaymentId !== null) {
     statusInfo.progress.advancePayment = true;
     statusInfo.statusMessages.push("✅ Advance payment completed");
   } else {
@@ -1795,7 +1820,7 @@ const calculateBookingStatus = (booking: any) => {
     statusInfo.statusMessages.push("✅ OTP verified");
   } else {
     statusInfo.statusMessages.push("⏳ OTP verification pending");
-    if (booking.otpCode && booking.advancePaymentStatus === "paid") {
+    if (booking.otpCode && booking.advancePaymentId !== null) {
       statusInfo.nextSteps.push("Verify OTP at pickup location");
     }
   }
@@ -1806,7 +1831,7 @@ const calculateBookingStatus = (booking: any) => {
     statusInfo.statusMessages.push("✅ User confirmation submitted");
   } else {
     statusInfo.statusMessages.push("⏳ User confirmation pending");
-    if (booking.otpVerified && booking.advancePaymentStatus === "paid") {
+    if (booking.otpVerified && booking.advancePaymentId !== null) {
       statusInfo.nextSteps.push("Submit car condition confirmation");
     }
   }
@@ -1833,7 +1858,7 @@ const calculateBookingStatus = (booking: any) => {
   }
 
   // 5. Final payment - always show
-  if (booking.finalPaymentStatus === "paid") {
+  if (booking.finalPaymentId !== null) {
     statusInfo.progress.finalPayment = true;
     statusInfo.statusMessages.push("✅ Final payment completed");
   } else {
@@ -1849,7 +1874,7 @@ const calculateBookingStatus = (booking: any) => {
     statusInfo.statusMessages.push("✅ Car pickup completed");
   } else {
     statusInfo.statusMessages.push("⏳ Car pickup pending");
-    if (booking.otpVerified && booking.finalPaymentStatus === "paid") {
+    if (booking.otpVerified && booking.finalPaymentId !== null) {
       statusInfo.nextSteps.push("Wait for PIC to confirm car pickup");
     }
   }
@@ -1904,7 +1929,7 @@ const calculateBookingStatus = (booking: any) => {
     statusInfo.statusMessages.push(
       "🔐 OTP code generated and ready for verification"
     );
-  } else if (booking.advancePaymentStatus === "paid" && !booking.otpCode) {
+  } else if (booking.advancePaymentId !== null && !booking.otpCode) {
     statusInfo.statusMessages.push("⏳ OTP generation pending");
   }
 
@@ -2017,18 +2042,18 @@ export const confirmCarPickup = asyncHandler<AuthenticatedRequest>(
     }
 
     // Check if PIC belongs to the parking lot where the car is located
-    if (booking.car?.parking?.id !== (req.user as any).parkingid) {
+    if (booking.pickupParkingId !== (req.user as any).parkingid) {
       throw ApiError.forbidden(
         "You can only confirm pickup for cars in your assigned parking lot"
       );
     }
 
     // Check if all prerequisites are met
-    if (booking.advancePaymentStatus !== "paid") {
+    if (booking.advancePaymentId === null) {
       throw ApiError.badRequest("Advance payment must be completed");
     }
 
-    if (booking.finalPaymentStatus !== "paid") {
+    if (booking.finalPaymentId === null) {
       throw ApiError.badRequest("Final payment must be completed");
     }
 
@@ -2119,7 +2144,7 @@ export const calculateLateFees = asyncHandler<AuthenticatedRequest>(
 
       // Calculate hourly rate based on car catalog late fee rate
       const dailyRate = booking.basePrice || 0;
-      const lateFeeRate = booking.car?.catalog?.lateFeeRate || 0.1; // Default 10%
+      const lateFeeRate = 0.1; // Default 10%
       hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
       lateFees = hourlyRate * diffInHours;
     }
@@ -2133,8 +2158,8 @@ export const calculateLateFees = asyncHandler<AuthenticatedRequest>(
         lateFees: Math.round(lateFees * 100) / 100,
         hourlyRate: Math.round(hourlyRate * 100) / 100,
         currentEndDate: booking.extensionTill || booking.endDate,
-        carName: booking.car?.name || "Unknown",
-        lateFeesPaid: booking.lateFeesPaid || false,
+        carName: "Unknown Car",
+        lateFeesPaid: booking.lateFeesPaymentId !== null || false,
       },
       "Late fees calculated successfully"
     );
@@ -2175,7 +2200,7 @@ export const payLateFees = asyncHandler<AuthenticatedRequest>(
       );
     }
 
-    if (booking.lateFeesPaid) {
+    if (booking.lateFeesPaymentId !== null) {
       throw ApiError.badRequest(
         "Late fees have already been paid for this booking"
       );
@@ -2194,7 +2219,7 @@ export const payLateFees = asyncHandler<AuthenticatedRequest>(
       (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
     );
     const dailyRate = booking.basePrice || 0;
-    const lateFeeRate = booking.car?.catalog?.lateFeeRate || 0.1;
+    const lateFeeRate = 0.1;
     const hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
     const lateFees = hourlyRate * diffInHours;
 
@@ -2203,9 +2228,9 @@ export const payLateFees = asyncHandler<AuthenticatedRequest>(
       .update(bookingsTable)
       .set({
         lateFees: Math.round(lateFees * 100) / 100,
-        lateFeesPaid: true,
-        lateFeesPaymentReferenceId: paymentReferenceId,
-        lateFeesPaidAt: now,
+        // lateFeesPaid: true, // Use payments table instead
+        // lateFeesPaymentReferenceId: paymentReferenceId, // Use payments table instead
+        // lateFeesPaidAt: now, // Use payments table instead
       })
       .where(eq(bookingsTable.id, bookingId))
       .returning();
@@ -2253,7 +2278,7 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
     }
 
     // Check if PIC belongs to the parking lot where the car is located
-    if (booking.car?.parking?.id !== (req.user as any).parkingid) {
+    if (booking.pickupParkingId !== (req.user as any).parkingid) {
       throw ApiError.forbidden(
         "You can only confirm return for cars in your assigned parking lot"
       );
@@ -2279,7 +2304,7 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
     const isOverdue = now > endDate;
 
     // Check if late fees are paid (if overdue)
-    if (isOverdue && !booking.lateFeesPaid) {
+    if (isOverdue && !booking.lateFeesPaymentId !== null) {
       throw ApiError.badRequest(
         "Late fees must be paid before car can be returned. Please use the pay-late-fees endpoint first."
       );
@@ -2307,7 +2332,7 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
       .where(eq(carModel.id, booking.carId));
 
     const message =
-      booking.lateFees && booking.lateFees > 0 && booking.lateFeesPaid
+      booking.lateFees && booking.lateFees > 0 && booking.lateFeesPaymentId !== null
         ? `Car return confirmed successfully. Late fees of ₹${booking.lateFees} were already paid. Car is now available for new bookings.`
         : "Car return confirmed successfully. Car is now available for new bookings.";
 
@@ -2387,7 +2412,7 @@ export const getEarningsOverview = asyncHandler<AuthenticatedRequest>(
         },
         breakdown: result.map((booking) => ({
           bookingId: booking.id,
-          carName: booking.car?.name || "Unknown",
+          carName: "Unknown Car",
           totalAmount:
             Math.round(
               (booking.advanceAmount || 0) +
@@ -2455,7 +2480,7 @@ export const checkBookingOverdue = asyncHandler<AuthenticatedRequest>(
 
       // Calculate late fees based on car catalog late fee rate
       const dailyRate = booking.basePrice || 0;
-      const lateFeeRate = booking.car?.catalog?.lateFeeRate || 0.1;
+      const lateFeeRate = 0.1;
       const hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
       lateFees = hourlyRate * diffInHours;
     }
@@ -2471,7 +2496,7 @@ export const checkBookingOverdue = asyncHandler<AuthenticatedRequest>(
         extensionTill: booking.extensionTill,
         extensionTime: booking.extensionTime,
         extensionPrice: booking.extensionPrice,
-        lateFeesPaid: booking.lateFeesPaid || false,
+        lateFeesPaid: booking.lateFeesPaymentId !== null || false,
       },
       "Booking overdue status checked successfully"
     );
@@ -2601,7 +2626,7 @@ export const getPickupCars = asyncHandler(
 
       // Build where conditions for pickup cars
       const conditions: any[] = [
-        eq(bookingsTable.advancePaymentStatus, "paid"), // After advance payment
+        isNotNull(bookingsTable.advancePaymentId), // After advance payment
         eq(bookingsTable.status, "advance_paid"), // Status should be advance_paid
         // Note: We'll need to get the PIC's parking lot ID from their profile or a separate table
         // For now, we'll show all pickup cars and let the frontend filter by parking lot
@@ -2659,7 +2684,7 @@ export const getPickupCars = asyncHandler(
           remainingAmount: bookingsTable.remainingAmount,
           totalPrice: bookingsTable.totalPrice,
           status: bookingsTable.status,
-          advancePaymentStatus: bookingsTable.advancePaymentStatus,
+          advancePaymentId: bookingsTable.advancePaymentId,
           otpCode: bookingsTable.otpCode,
           otpVerified: bookingsTable.otpVerified,
           userConfirmed: bookingsTable.userConfirmed,
@@ -2785,7 +2810,7 @@ export const getDropoffCars = asyncHandler(
       // Build where conditions for dropoff cars
       const conditions: any[] = [
         eq(bookingsTable.status, "active"), // Active bookings
-        eq(bookingsTable.finalPaymentStatus, "paid"), // Final payment completed
+        isNotNull(bookingsTable.finalPaymentId), // Final payment completed
         // Note: We'll need to get the PIC's parking lot ID from their profile or a separate table
         // For now, we'll show all dropoff cars and let the frontend filter by parking lot
       ];
@@ -2835,11 +2860,11 @@ export const getDropoffCars = asyncHandler(
           remainingAmount: bookingsTable.remainingAmount,
           totalPrice: bookingsTable.totalPrice,
           status: bookingsTable.status,
-          finalPaymentStatus: bookingsTable.finalPaymentStatus,
+          finalPaymentId: bookingsTable.finalPaymentId,
           extensionPrice: bookingsTable.extensionPrice,
           extensionTill: bookingsTable.extensionTill,
           lateFees: bookingsTable.lateFees,
-          lateFeesPaid: bookingsTable.lateFeesPaid,
+          lateFeesPaymentId: bookingsTable.lateFeesPaymentId,
           returnCondition: bookingsTable.returnCondition,
           returnComments: bookingsTable.returnComments,
           pickupParkingId: bookingsTable.pickupParkingId,
@@ -3121,20 +3146,10 @@ export const getUserBookingsFormatted = asyncHandler<AuthenticatedRequest>(
     // Process bookings and format them according to the required structure
     const formattedBookings = result.map((booking) => {
       // Get car image from catalog or use a default
-      const carImage =
-        booking.car?.catalog?.imageUrl ||
-        (booking.car?.images && booking.car.images.length > 0
-          ? booking.car.images[0]
-          : "https://example.com/car-images/default.jpg");
+      const carImage = "https://example.com/car-images/default.jpg";
 
       // Get car name from catalog or use car name
-      const carName =
-        booking.car?.catalog?.carName ||
-        `${booking.car?.catalog?.carMaker || "Car"} ${
-          booking.car?.catalog?.carModelYear || ""
-        }`.trim() ||
-        booking.car?.name ||
-        "Unknown Car";
+      const carName = "Unknown Car";
 
       // Format dates
       const pickupDate = booking.startDate
@@ -3165,24 +3180,13 @@ export const getUserBookingsFormatted = asyncHandler<AuthenticatedRequest>(
         : "12:00 PM";
 
       // Get location names
-      const pickupLocation =
-        booking.pickupParking?.name ||
-        `${booking.pickupParking?.locality || ""}, ${
-          booking.pickupParking?.city || ""
-        }`.trim() ||
-        "Pickup Location";
-
-      const dropoffLocation =
-        booking.dropoffParking?.name ||
-        `${booking.dropoffParking?.locality || ""}, ${
-          booking.dropoffParking?.city || ""
-        }`.trim() ||
-        "Dropoff Location";
+      const pickupLocation = "Unknown Parking";
+      const dropoffLocation = "Unknown Parking";
 
       // Determine status for current bookings
       let status = "inactive";
       if (
-        booking.finalPaymentStatus === "paid" &&
+        booking.finalPaymentId !== null &&
         (booking.status === "active" || booking.status === "completed")
       ) {
         status = "active";
@@ -3281,25 +3285,15 @@ export const getDetailedBookingById = asyncHandler<AuthenticatedRequest>(
     );
 
     // Get car image from catalog or use a default
-    const carImage =
-      result.car?.catalog?.imageUrl ||
-      (result.car?.images && result.car.images.length > 0
-        ? result.car.images[0]
-        : "https://example.com/car-images/default.jpg");
+    const carImage = "https://example.com/car-images/default.jpg";
 
     // Get car name from catalog or use car name
-    const carName =
-      result.car?.catalog?.carName ||
-      `${result.car?.catalog?.carMaker || "Car"} ${
-        result.car?.catalog?.carModelYear || ""
-      }`.trim() ||
-      result.car?.name ||
-      "Unknown Car";
+    const carName = "Unknown Car";
 
     // Determine status
     let status = "inactive";
     if (
-      result.finalPaymentStatus === "paid" &&
+      result.finalPaymentId !== null &&
       (result.status === "active" || result.status === "completed")
     ) {
       status = "active";
@@ -3317,12 +3311,7 @@ export const getDetailedBookingById = asyncHandler<AuthenticatedRequest>(
       : "";
 
     // Get location address
-    const locationAddress =
-      result.pickupParking?.name ||
-      `${result.pickupParking?.locality || ""}, ${
-        result.pickupParking?.city || ""
-      }`.trim() ||
-      "Pickup Location";
+    const locationAddress = "Unknown Parking";
 
     // Create billing breakdown
     const billingBreakdown = {
@@ -3346,23 +3335,23 @@ export const getDetailedBookingById = asyncHandler<AuthenticatedRequest>(
       isOTP: result.otpVerified || false,
       isCarChecked:
         result.carConditionImages && result.carConditionImages.length > 0,
-      isPaid: result.finalPaymentStatus === "paid",
+      isPaid: result.finalPaymentId !== null,
       totalRating: 4.5, // This would come from reviews table in a real implementation
       totalPeopleRated: 128, // This would come from reviews table in a real implementation
-      parkingName: result.pickupParking?.name || "Unknown Parking",
+      parkingName: "Unknown Parking",
       perDayCost:
-        Number(result.car?.catalog?.carPlatformPrice) ||
-        Number(result.car?.price) ||
+        Number(0) ||
+        Number(0) ||
         0,
-      carType: result.car?.catalog?.category || "Sedan",
-      fuelType: result.car?.catalog?.fuelType || "Petrol",
-      noOfSeats: result.car?.catalog?.seats || 5,
+      carType: "Sedan",
+      fuelType: "Petrol",
+      noOfSeats: 5,
       bookingDetails: {
         pickupDate: pickupDate,
         dropoffDate: dropoffDate,
         numberOfDays: numberOfDays,
         locationAddress: locationAddress,
-        couponCode: result.coupon?.code || null,
+        couponCode: null,
         isInsurance: Number(result.insuranceAmount) > 0,
         isHomeDelivery: result.deliveryType === "delivery",
         bookedOn: bookedOn,
@@ -3420,18 +3409,18 @@ export const getAllBookings = asyncHandler<AuthenticatedRequest>(
           extensionTill: bookingsTable.extensionTill,
           extensionTime: bookingsTable.extensionTime,
           lateFees: bookingsTable.lateFees,
-          lateFeesPaid: bookingsTable.lateFeesPaid,
-          lateFeesPaymentReferenceId: bookingsTable.lateFeesPaymentReferenceId,
-          lateFeesPaidAt: bookingsTable.lateFeesPaidAt,
+          lateFeesPaymentId: bookingsTable.lateFeesPaymentId,
+          // lateFeesPaymentReferenceId: bookingsTable.lateFeesPaymentReferenceId, // Removed in migration
+          // lateFeesPaidAt: bookingsTable.lateFeesPaidAt, // Removed in migration
           returnCondition: bookingsTable.returnCondition,
           returnImages: bookingsTable.returnImages,
           returnComments: bookingsTable.returnComments,
           status: bookingsTable.status,
           confirmationStatus: bookingsTable.confirmationStatus,
-          advancePaymentStatus: bookingsTable.advancePaymentStatus,
-          finalPaymentStatus: bookingsTable.finalPaymentStatus,
-          advancePaymentReferenceId: bookingsTable.advancePaymentReferenceId,
-          finalPaymentReferenceId: bookingsTable.finalPaymentReferenceId,
+          advancePaymentId: bookingsTable.advancePaymentId,
+          finalPaymentId: bookingsTable.finalPaymentId,
+          // advancePaymentReferenceId: bookingsTable.advancePaymentReferenceId, // Removed in migration
+          // finalPaymentReferenceId: bookingsTable.finalPaymentReferenceId, // Removed in migration
           carConditionImages: bookingsTable.carConditionImages,
           toolImages: bookingsTable.toolImages,
           tools: bookingsTable.tools,
@@ -3577,18 +3566,18 @@ export const getAllBookings = asyncHandler<AuthenticatedRequest>(
         extensionTill: bookingData.extensionTill,
         extensionTime: bookingData.extensionTime,
         lateFees: bookingData.lateFees,
-        lateFeesPaid: bookingData.lateFeesPaid,
-        lateFeesPaymentReferenceId: bookingData.lateFeesPaymentReferenceId,
-        lateFeesPaidAt: bookingData.lateFeesPaidAt,
+        lateFeesPaid: bookingData.lateFeesPaymentId !== null,
+        lateFeesPaymentReferenceId: null,
+        lateFeesPaidAt: bookingData.lateFeesPaymentId !== null,
         returnCondition: bookingData.returnCondition,
         returnImages: bookingData.returnImages,
         returnComments: bookingData.returnComments,
         status: bookingData.status,
         confirmationStatus: bookingData.confirmationStatus,
-        advancePaymentStatus: bookingData.advancePaymentStatus,
-        finalPaymentStatus: bookingData.finalPaymentStatus,
-        advancePaymentReferenceId: bookingData.advancePaymentReferenceId,
-        finalPaymentReferenceId: bookingData.finalPaymentReferenceId,
+        advancePaymentStatus: bookingData.advancePaymentId !== null ? "paid" : "pending",
+        finalPaymentStatus: bookingData.finalPaymentId !== null ? "paid" : "pending",
+        advancePaymentReferenceId: null,
+        finalPaymentReferenceId: null,
         carConditionImages: bookingData.carConditionImages,
         toolImages: bookingData.toolImages,
         tools: cleanToolsData(bookingData.tools),
@@ -3615,7 +3604,7 @@ export const getAllBookings = asyncHandler<AuthenticatedRequest>(
         pickupParking: bookingData.pickupParking,
         dropoffParking: bookingData.dropoffParking,
         // Add paymentStatus field for compatibility with frontend
-        paymentStatus: bookingData.finalPaymentStatus,
+        paymentStatus: bookingData.finalPaymentId !== null ? "paid" : "pending",
       }));
 
       sendSuccess(res, transformedBookings, "All bookings retrieved successfully");

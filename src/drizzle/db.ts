@@ -36,6 +36,13 @@ import {
   picVerificationTable,
   picVerificationRelations,
 } from "../modules/parking/picmodel";
+import {
+  paymentsTable,
+  paymentSummaryTable,
+  paymentRelations,
+  paymentSummaryRelations,
+  bookingPaymentRelations,
+} from "../modules/payment/paymentmodel";
 
 dotenv.config();
 
@@ -59,6 +66,8 @@ const schema = {
   topupTable,
   bookingTopupTable,
   picVerificationTable,
+  paymentsTable,
+  paymentSummaryTable,
   // Include all relations
   carRelations,
   carCatalogRelations,
@@ -71,6 +80,9 @@ const schema = {
   topupRelations,
   bookingTopupRelations,
   picVerificationRelations,
+  paymentRelations,
+  paymentSummaryRelations,
+  bookingPaymentRelations,
 };
 
 // For serverless operations

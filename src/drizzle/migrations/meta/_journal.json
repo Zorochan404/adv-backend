@@ -50,6 +50,13 @@
       "when": 1754810421526,
       "tag": "0006_rare_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1757521295887,
+      "tag": "0007_tidy_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

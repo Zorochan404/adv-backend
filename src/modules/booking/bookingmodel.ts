@@ -13,6 +13,7 @@ import { UserTable } from "../user/usermodel";
 import { carModel } from "../car/carmodel";
 import { parkingTable } from "../parking/parkingmodel";
 import { couponTable } from "../coupon/couponmodel";
+// Note: paymentsTable import removed to avoid circular dependency
 
 export const bookingsTable = pgTable("bookings", {
   id: serial("id").primaryKey(),
@@ -59,11 +60,6 @@ export const bookingsTable = pgTable("bookings", {
 
   // Late fees
   lateFees: doublePrecision("late_fees").default(0), // Late fees for overdue returns
-  lateFeesPaid: boolean("late_fees_paid").default(false), // Whether late fees have been paid
-  lateFeesPaymentReferenceId: varchar("late_fees_payment_reference_id", {
-    length: 100,
-  }), // Payment reference for late fees
-  lateFeesPaidAt: timestamp("late_fees_paid_at"), // When late fees were paid
 
   // Car return details
   returnCondition: varchar("return_condition", { length: 50 }).default("good"), // good, fair, poor
@@ -76,19 +72,10 @@ export const bookingsTable = pgTable("bookings", {
     "pending"
   ), // pending, approved, rejected
 
-  // Payment tracking
-  advancePaymentStatus: varchar("advance_payment_status", {
-    length: 50,
-  }).default("pending"),
-  finalPaymentStatus: varchar("final_payment_status", { length: 50 }).default(
-    "pending"
-  ),
-  advancePaymentReferenceId: varchar("advance_payment_reference_id", {
-    length: 100,
-  }),
-  finalPaymentReferenceId: varchar("final_payment_reference_id", {
-    length: 100,
-  }),
+  // Payment tracking - now references payments table
+  advancePaymentId: integer("advance_payment_id"),
+  finalPaymentId: integer("final_payment_id"),
+  lateFeesPaymentId: integer("late_fees_payment_id"),
 
   // Car condition verification
   carConditionImages: varchar("car_condition_images", { length: 500 })
@@ -135,7 +122,7 @@ export const bookingsTable = pgTable("bookings", {
 });
 
 // Define relations for bookings table
-export const bookingRelations = relations(bookingsTable, ({ one }) => ({
+export const bookingRelations = relations(bookingsTable, ({ one, many }) => ({
   user: one(UserTable, {
     fields: [bookingsTable.userId],
     references: [UserTable.id],
@@ -160,4 +147,5 @@ export const bookingRelations = relations(bookingsTable, ({ one }) => ({
     fields: [bookingsTable.picApprovedBy],
     references: [UserTable.id],
   }),
+  // Payment relations - will be defined in payment model to avoid circular dependency
 }));
