@@ -2,11 +2,11 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiResponse } from "../utils/apiResponse";
 import { db } from "../../drizzle/db";
-import { bookingsTable } from "../booking/bookingmodel";
-import { carModel } from "../car/carmodel";
+import { bookingsTable, bookingRelations } from "../booking/bookingmodel";
+import { carModel, carRelations, carCatalogTable } from "../car/carmodel";
 import { UserTable } from "../user/usermodel";
-import { carCatalogTable } from "../car/carmodel";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 // Extend the Request interface to include 'user' property
 interface AuthenticatedRequest extends Request {
@@ -27,45 +27,57 @@ export const getPickupCars = asyncHandler<AuthenticatedRequest>(
     }
 
     // Get all cars in PIC's parking lot that are booked and ready for pickup
-    const pickupCars = await db.query.bookingsTable.findMany({
-      where: (bookingsTable, { and, eq, inArray }) => {
-        // Get cars in PIC's parking lot
-        const carsInParking = db
-          .select({ carId: carModel.id })
-          .from(carModel)
-          .where(eq(carModel.parkingid, picParkingId));
+    // Get cars in PIC's parking lot first
+    const carsInParking = await db
+      .select({ carId: carModel.id })
+      .from(carModel)
+      .where(eq(carModel.parkingid, picParkingId));
 
-        return and(
-          inArray(bookingsTable.carId, carsInParking),
-          eq(bookingsTable.status, "advance_paid"), // Show cars after advance payment
-          eq(bookingsTable.picApproved, false) // Show cars that need PIC approval
-        );
-      },
-      with: {
-        car: {
-          with: {
-            catalog: true,
-            vendor: {
-              columns: {
-                id: true,
-                name: true,
-                email: true,
-                number: true,
-              },
-            },
-          },
-        },
-        user: {
-          columns: {
-            id: true,
-            name: true,
-            email: true,
-            number: true,
-          },
-        },
-      },
-      orderBy: (bookingsTable, { asc }) => [asc(bookingsTable.pickupDate)],
-    });
+    const carIds = carsInParking.map(car => car.carId);
+
+    // Create aliases for UserTable to avoid conflicts
+    const vendorTable = alias(UserTable, 'vendor');
+    const userTable = alias(UserTable, 'user');
+
+    // Now get bookings with proper joins
+    const pickupCars = await db
+      .select({
+        // Booking fields
+        id: bookingsTable.id,
+        carId: bookingsTable.carId,
+        userId: bookingsTable.userId,
+        status: bookingsTable.status,
+        pickupDate: bookingsTable.pickupDate,
+        startDate: bookingsTable.startDate,
+        endDate: bookingsTable.endDate,
+        actualPickupDate: bookingsTable.actualPickupDate,
+        // Car fields
+        carNumber: carModel.number,
+        carColor: carModel.color,
+        carPrice: carModel.price,
+        // Car catalog fields
+        carName: carCatalogTable.carName,
+        carMaker: carCatalogTable.carMaker,
+        // Vendor fields
+        vendorName: vendorTable.name,
+        // User fields
+        userName: userTable.name,
+        userEmail: userTable.email,
+        userNumber: userTable.number,
+      })
+      .from(bookingsTable)
+      .leftJoin(carModel, eq(bookingsTable.carId, carModel.id))
+      .leftJoin(carCatalogTable, eq(carModel.catalogId, carCatalogTable.id))
+      .leftJoin(vendorTable, eq(carModel.vendorid, vendorTable.id))
+      .leftJoin(userTable, eq(bookingsTable.userId, userTable.id))
+      .where(
+        and(
+          inArray(bookingsTable.carId, carIds),
+          eq(bookingsTable.status, "advance_paid"),
+          eq(bookingsTable.picApproved, false)
+        )
+      )
+      .orderBy(bookingsTable.pickupDate);
 
     // Transform the data to include required fields
     const transformedCars = pickupCars.map((booking) => ({
@@ -73,16 +85,16 @@ export const getPickupCars = asyncHandler<AuthenticatedRequest>(
       bookingId: booking.id,
       carId: booking.carId,
       userId: booking.userId,
-      licensePlate: "Unknown Plate",
-      model: "Unknown Car",
+      licensePlate: booking.carNumber || "Unknown Plate",
+      model: booking.carName || "Unknown Car",
       pickupTime: booking.pickupDate || booking.startDate,
-      customerName: "Unknown User",
-      customerEmail: "unknown@example.com",
-      customerPhone: "0000000000",
+      customerName: booking.userName || "Unknown User",
+      customerEmail: booking.userEmail || "unknown@example.com",
+      customerPhone: booking.userNumber || "0000000000",
       status: "ready_for_pickup",
-      carColor: "Unknown Color",
-      carPrice: 0,
-      vendorName: "Unknown Vendor",
+      carColor: booking.carColor || "Unknown Color",
+      carPrice: booking.carPrice || 0,
+      vendorName: booking.vendorName || "Unknown Vendor",
     }));
 
     const responseData = {
@@ -107,45 +119,56 @@ export const getDropoffCars = asyncHandler<AuthenticatedRequest>(
       throw new ApiResponse(400, null, "PIC must be assigned to a parking lot");
     }
 
-    // Get all cars that are currently active (out for rental) and need to be returned
-    const dropoffCars = await db.query.bookingsTable.findMany({
-      where: (bookingsTable, { and, eq, inArray }) => {
-        // Get cars in PIC's parking lot
-        const carsInParking = db
-          .select({ carId: carModel.id })
-          .from(carModel)
-          .where(eq(carModel.parkingid, picParkingId));
+    // Get cars in PIC's parking lot first
+    const carsInParking = await db
+      .select({ carId: carModel.id })
+      .from(carModel)
+      .where(eq(carModel.parkingid, picParkingId));
 
-        return and(
-          inArray(bookingsTable.carId, carsInParking),
+    const carIds = carsInParking.map(car => car.carId);
+
+    // Create aliases for UserTable to avoid conflicts
+    const vendorTable = alias(UserTable, 'vendor');
+    const userTable = alias(UserTable, 'user');
+
+    // Get all cars that are currently active (out for rental) and need to be returned
+    const dropoffCars = await db
+      .select({
+        // Booking fields
+        id: bookingsTable.id,
+        carId: bookingsTable.carId,
+        userId: bookingsTable.userId,
+        status: bookingsTable.status,
+        pickupDate: bookingsTable.pickupDate,
+        startDate: bookingsTable.startDate,
+        endDate: bookingsTable.endDate,
+        actualPickupDate: bookingsTable.actualPickupDate,
+        // Car fields
+        carNumber: carModel.number,
+        carColor: carModel.color,
+        carPrice: carModel.price,
+        // Car catalog fields
+        carName: carCatalogTable.carName,
+        carMaker: carCatalogTable.carMaker,
+        // Vendor fields
+        vendorName: vendorTable.name,
+        // User fields
+        userName: userTable.name,
+        userEmail: userTable.email,
+        userNumber: userTable.number,
+      })
+      .from(bookingsTable)
+      .leftJoin(carModel, eq(bookingsTable.carId, carModel.id))
+      .leftJoin(carCatalogTable, eq(carModel.catalogId, carCatalogTable.id))
+      .leftJoin(vendorTable, eq(carModel.vendorid, vendorTable.id))
+      .leftJoin(userTable, eq(bookingsTable.userId, userTable.id))
+      .where(
+        and(
+          inArray(bookingsTable.carId, carIds),
           eq(bookingsTable.status, "active") // Only active bookings (car is out)
-        );
-      },
-      with: {
-        car: {
-          with: {
-            catalog: true,
-            vendor: {
-              columns: {
-                id: true,
-                name: true,
-                email: true,
-                number: true,
-              },
-            },
-          },
-        },
-        user: {
-          columns: {
-            id: true,
-            name: true,
-            email: true,
-            number: true,
-          },
-        },
-      },
-      orderBy: (bookingsTable, { asc }) => [asc(bookingsTable.endDate)],
-    });
+        )
+      )
+      .orderBy(bookingsTable.endDate);
 
     // Transform the data to include required fields
     const transformedCars = dropoffCars.map((booking) => ({
@@ -153,17 +176,17 @@ export const getDropoffCars = asyncHandler<AuthenticatedRequest>(
       bookingId: booking.id,
       carId: booking.carId,
       userId: booking.userId,
-      licensePlate: "Unknown Plate",
-      model: "Unknown Car",
+      licensePlate: booking.carNumber || "Unknown Plate",
+      model: booking.carName || "Unknown Car",
       dropoffTime: booking.endDate,
       expectedDropoffTime: booking.endDate,
-      customerName: "Unknown User",
-      customerEmail: "unknown@example.com",
-      customerPhone: "0000000000",
+      customerName: booking.userName || "Unknown User",
+      customerEmail: booking.userEmail || "unknown@example.com",
+      customerPhone: booking.userNumber || "0000000000",
       status: "scheduled_for_dropoff",
-      carColor: "Unknown Color",
-      carPrice: 0,
-      vendorName: "Unknown Vendor",
+      carColor: booking.carColor || "Unknown Color",
+      carPrice: booking.carPrice || 0,
+      vendorName: booking.vendorName || "Unknown Vendor",
       startDate: booking.startDate,
       actualPickupDate: booking.actualPickupDate,
     }));
