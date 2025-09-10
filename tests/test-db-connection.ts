@@ -31,3 +31,4 @@ export const mockDbConnection = () => {
   // This is a simple approach - in a real scenario you might want to use dependency injection
   return testDb;
 };
+

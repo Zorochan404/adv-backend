@@ -232,10 +232,10 @@ export const getNearestAvailableCars = asyncHandler(
       } else if (categories) {
         if (Array.isArray(categories)) {
           // Handle array from JSON body - use inArray from drizzle-orm
-          conditions.push(inArray(carCatalogTable.category, categories));
+          conditions.push(inArray(carCatalogTable.category, categories as string[]));
         } else {
           // Handle comma-separated string from query params
-          const categoryList = categories.split(',').map((c: string) => c.trim());
+          const categoryList = (categories as string).split(',').map((c: string) => c.trim());
           conditions.push(inArray(carCatalogTable.category, categoryList));
         }
       }
