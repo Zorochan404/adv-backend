@@ -11,6 +11,7 @@ import {
   getParkingsList,
   assignUserRoles,
   getUsersList,
+  getBookingById,
 } from "./admincontroller";
 import { verifyJWT } from "../middleware/auth";
 import { requireAdmin, requirePermission, Permission } from "../middleware/rbac";
@@ -44,6 +45,10 @@ const usersListQuerySchema = z.object({
   role: z.enum(['user', 'admin', 'vendor', 'parkingincharge']).optional(),
   limit: z.coerce.number().min(1).max(100).optional().default(20),
   offset: z.coerce.number().min(0).optional().default(0)
+});
+
+const bookingParamsSchema = z.object({
+  id: z.coerce.number().positive()
 });
 
 // ========================================
@@ -150,6 +155,15 @@ router.post(
   requireAdmin,
   validateRequest(userRoleAssignmentSchema),
   assignUserRoles
+);
+
+// Get single booking by ID
+router.get(
+  "/bookings/:id",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(bookingParamsSchema),
+  getBookingById
 );
 
 // ========================================

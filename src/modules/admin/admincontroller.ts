@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../../drizzle/db";
 import { bookingsTable as bookings } from "../booking/bookingmodel";
-import { carModel as car } from "../car/carmodel";
+import { carModel as car, carCatalogTable } from "../car/carmodel";
 import { UserTable as users } from "../user/usermodel";
 import { parkingTable as parkings } from "../parking/parkingmodel";
 import { reviewModel as review } from "../review/reviewmodel";
@@ -1005,6 +1005,259 @@ export const getUsersList = asyncHandler(async (req: Request, res: Response) => 
     console.error('Error fetching users:', error);
     return res.status(500).json(
       new ApiResponse(500, null, 'Failed to fetch users')
+    );
+  }
+});
+
+// ========================================
+// BOOKING MANAGEMENT
+// ========================================
+
+// Get single booking by ID with all details
+export const getBookingById = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    // Get booking with basic related data
+    const bookingResult = await db
+      .select({
+        // Booking details
+        id: bookings.id,
+        userId: bookings.userId,
+        carId: bookings.carId,
+        startDate: bookings.startDate,
+        endDate: bookings.endDate,
+        basePrice: bookings.basePrice,
+        advanceAmount: bookings.advanceAmount,
+        remainingAmount: bookings.remainingAmount,
+        totalPrice: bookings.totalPrice,
+        discountAmount: bookings.discountAmount,
+        insuranceAmount: bookings.insuranceAmount,
+        extensionPrice: bookings.extensionPrice,
+        extensionTill: bookings.extensionTill,
+        extensionTime: bookings.extensionTime,
+        status: bookings.status,
+        confirmationStatus: bookings.confirmationStatus,
+        tools: bookings.tools,
+        carConditionImages: bookings.carConditionImages,
+        toolImages: bookings.toolImages,
+        pickupParkingId: bookings.pickupParkingId,
+        dropoffParkingId: bookings.dropoffParkingId,
+        createdAt: bookings.createdAt,
+        updatedAt: bookings.updatedAt,
+        
+        // Car details
+        carName: car.name,
+        carMaker: carCatalogTable.carMaker,
+        carYear: carCatalogTable.carModelYear,
+        carNumber: car.number,
+        carPrice: carCatalogTable.carPlatformPrice,
+        carDiscountedPrice: carCatalogTable.carPlatformPrice,
+        carColor: car.color,
+        carTransmission: carCatalogTable.transmission,
+        carFuel: carCatalogTable.fuelType,
+        carType: carCatalogTable.carName,
+        carSeats: carCatalogTable.seats,
+        carRcNumber: car.rcnumber,
+        carRcImg: car.rcimg,
+        carPollutionImg: car.pollutionimg,
+        carInsuranceImg: car.insuranceimg,
+        carInMaintenance: car.inmaintainance,
+        carIsAvailable: car.isavailable,
+        carImages: car.images,
+        carMainImg: car.images,
+        carVendorId: car.vendorid,
+        carParkingId: car.parkingid,
+        carIsApproved: sql`true`,
+        carIsPopular: sql`false`,
+        carInsurancePrice: car.insuranceAmount,
+        carCreatedAt: car.createdAt,
+        carUpdatedAt: car.updatedAt,
+        
+        // User details
+        userName: users.name,
+        userAvatar: users.avatar,
+        userAge: users.age,
+        userNumber: users.number,
+        userEmail: users.email,
+        userAadharNumber: users.aadharNumber,
+        userAadharImg: users.aadharimg,
+        userDlNumber: users.dlNumber,
+        userDlImg: users.dlimg,
+        userPassportNumber: users.passportNumber,
+        userPassportImg: users.passportimg,
+        userLat: users.lat,
+        userLng: users.lng,
+        userLocality: users.locality,
+        userCity: users.city,
+        userState: users.state,
+        userCountry: users.country,
+        userPincode: users.pincode,
+        userRole: users.role,
+        userIsVerified: users.isverified,
+        userParkingId: users.parkingid,
+        userCreatedAt: users.createdAt,
+        userUpdatedAt: users.updatedAt,
+      })
+      .from(bookings)
+      .leftJoin(car, eq(bookings.carId, car.id))
+      .leftJoin(carCatalogTable, eq(car.catalogId, carCatalogTable.id))
+      .leftJoin(users, eq(bookings.userId, users.id))
+      .where(eq(bookings.id, Number(id)))
+      .limit(1);
+
+    if (bookingResult.length === 0) {
+      return res.status(404).json(
+        new ApiResponse(404, null, 'Booking not found')
+      );
+    }
+
+    const booking = bookingResult[0];
+
+    // Get pickup parking details
+    let pickupParking = null;
+    if (booking.pickupParkingId) {
+      const pickupResult = await db
+        .select()
+        .from(parkings)
+        .where(eq(parkings.id, Number(booking.pickupParkingId)))
+        .limit(1);
+      pickupParking = pickupResult[0] || null;
+    }
+
+    // Get dropoff parking details
+    let dropoffParking = null;
+    if (booking.dropoffParkingId) {
+      const dropoffResult = await db
+        .select()
+        .from(parkings)
+        .where(eq(parkings.id, Number(booking.dropoffParkingId)))
+        .limit(1);
+      dropoffParking = dropoffResult[0] || null;
+    }
+
+    // Transform the flat result into nested objects
+    const transformedBooking = {
+      id: booking.id,
+      userId: booking.userId,
+      carId: booking.carId,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      price: Number(booking.basePrice),
+      insurancePrice: Number(booking.insuranceAmount),
+      totalPrice: Number(booking.totalPrice),
+      extensionPrice: booking.extensionPrice ? Number(booking.extensionPrice) : null,
+      extentiontill: booking.extensionTill,
+      extentiontime: booking.extensionTime,
+      status: booking.status,
+      tool: booking.tools || "",
+      tripStartingCarImages: booking.carConditionImages || [],
+      paymentStatus: "paid", // Default to paid, can be enhanced with payment table
+      paymentReferenceId: "PAY_REF_123456", // Default, can be enhanced with payment table
+      pickupParkingId: booking.pickupParkingId,
+      dropoffParkingId: booking.dropoffParkingId,
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt,
+      
+      car: {
+        id: booking.carId,
+        name: booking.carName,
+        maker: booking.carMaker,
+        year: booking.carYear,
+        carnumber: booking.carNumber,
+        price: Number(booking.carPrice),
+        discountedprice: Number(booking.carDiscountedPrice),
+        color: booking.carColor,
+        transmission: booking.carTransmission,
+        fuel: booking.carFuel,
+        type: booking.carType,
+        seats: booking.carSeats,
+        rcnumber: booking.carRcNumber,
+        rcimg: booking.carRcImg,
+        pollutionimg: booking.carPollutionImg,
+        insuranceimg: booking.carInsuranceImg,
+        inmaintainance: booking.carInMaintenance,
+        isavailable: booking.carIsAvailable,
+        images: booking.carImages || [],
+        mainimg: booking.carMainImg,
+        vendorid: booking.carVendorId,
+        parkingid: booking.carParkingId,
+        isapproved: booking.carIsApproved,
+        ispopular: booking.carIsPopular,
+        insurancePrice: Number(booking.carInsurancePrice),
+        createdAt: booking.carCreatedAt,
+        updatedAt: booking.carUpdatedAt,
+      },
+      
+      user: {
+        id: booking.userId,
+        name: booking.userName,
+        avatar: booking.userAvatar,
+        age: booking.userAge,
+        number: booking.userNumber,
+        email: booking.userEmail,
+        aadharNumber: booking.userAadharNumber,
+        aadharimg: booking.userAadharImg,
+        dlNumber: booking.userDlNumber,
+        dlimg: booking.userDlImg,
+        passportNumber: booking.userPassportNumber,
+        passportimg: booking.userPassportImg,
+        lat: booking.userLat,
+        lng: booking.userLng,
+        locality: booking.userLocality,
+        city: booking.userCity,
+        state: booking.userState,
+        country: booking.userCountry,
+        pincode: booking.userPincode,
+        role: booking.userRole,
+        isverified: booking.userIsVerified,
+        parkingid: booking.userParkingId,
+        createdAt: booking.userCreatedAt,
+        updatedAt: booking.userUpdatedAt,
+      },
+      
+      pickupParking: pickupParking ? {
+        id: pickupParking.id,
+        name: pickupParking.name,
+        locality: pickupParking.locality,
+        city: pickupParking.city,
+        state: pickupParking.state,
+        country: pickupParking.country,
+        pincode: pickupParking.pincode,
+        capacity: pickupParking.capacity,
+        mainimg: pickupParking.mainimg,
+        images: pickupParking.images || [],
+        lat: pickupParking.lat,
+        lng: pickupParking.lng,
+        createdAt: pickupParking.createdAt,
+        updatedAt: pickupParking.updatedAt,
+      } : null,
+      
+      dropoffParking: dropoffParking ? {
+        id: dropoffParking.id,
+        name: dropoffParking.name,
+        locality: dropoffParking.locality,
+        city: dropoffParking.city,
+        state: dropoffParking.state,
+        country: dropoffParking.country,
+        pincode: dropoffParking.pincode,
+        capacity: dropoffParking.capacity,
+        mainimg: dropoffParking.mainimg,
+        images: dropoffParking.images || [],
+        lat: dropoffParking.lat,
+        lng: dropoffParking.lng,
+        createdAt: dropoffParking.createdAt,
+        updatedAt: dropoffParking.updatedAt,
+      } : null,
+    };
+
+    return res.status(200).json(
+      new ApiResponse(200, transformedBooking, 'Booking retrieved successfully')
+    );
+  } catch (error) {
+    console.error('Error fetching booking:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to fetch booking')
     );
   }
 });
