@@ -9,6 +9,8 @@ import {
   getBookingTimelineOverview,
   getVendorsList,
   getParkingsList,
+  assignUserRoles,
+  getUsersList,
 } from "./admincontroller";
 import { verifyJWT } from "../middleware/auth";
 import { requireAdmin, requirePermission, Permission } from "../middleware/rbac";
@@ -28,6 +30,18 @@ const limitQuerySchema = z.object({
 
 const listQuerySchema = z.object({
   search: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).optional().default(20),
+  offset: z.coerce.number().min(0).optional().default(0)
+});
+
+const userRoleAssignmentSchema = z.object({
+  userIds: z.array(z.coerce.number().positive()).min(1, "At least one user ID is required"),
+  role: z.enum(['user', 'admin', 'vendor', 'parkingincharge'])
+});
+
+const usersListQuerySchema = z.object({
+  search: z.string().optional(),
+  role: z.enum(['user', 'admin', 'vendor', 'parkingincharge']).optional(),
   limit: z.coerce.number().min(1).max(100).optional().default(20),
   offset: z.coerce.number().min(0).optional().default(0)
 });
@@ -118,6 +132,24 @@ router.get(
   requireAdmin,
   validateRequest(listQuerySchema),
   getParkingsList
+);
+
+// Get list of users
+router.get(
+  "/users",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(usersListQuerySchema),
+  getUsersList
+);
+
+// Assign roles to multiple users
+router.post(
+  "/users/assign-roles",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(userRoleAssignmentSchema),
+  assignUserRoles
 );
 
 // ========================================

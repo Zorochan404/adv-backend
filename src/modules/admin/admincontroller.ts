@@ -5,7 +5,7 @@ import { carModel as car } from "../car/carmodel";
 import { UserTable as users } from "../user/usermodel";
 import { parkingTable as parkings } from "../parking/parkingmodel";
 import { reviewModel as review } from "../review/reviewmodel";
-import { eq, gte, desc, count, sum, and, sql, like, or } from "drizzle-orm";
+import { eq, gte, desc, count, sum, and, sql, like, or, inArray } from "drizzle-orm";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiResponse } from "../utils/apiResponse";
 
@@ -773,6 +773,238 @@ export const getParkingsList = asyncHandler(async (req: Request, res: Response) 
     console.error('Error fetching parkings:', error);
     return res.status(500).json(
       new ApiResponse(500, null, 'Failed to fetch parkings')
+    );
+  }
+});
+
+// ========================================
+// USER ROLE MANAGEMENT
+// ========================================
+
+// Assign roles to multiple users
+export const assignUserRoles = asyncHandler(async (req: Request, res: Response) => {
+  const { userIds, role } = req.body as {
+    userIds: number[];
+    role: 'user' | 'admin' | 'vendor' | 'parkingincharge';
+  };
+
+  try {
+    // Validate input
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json(
+        new ApiResponse(400, null, 'User IDs array is required and cannot be empty')
+      );
+    }
+
+    if (!role || !['user', 'admin', 'vendor', 'parkingincharge'].includes(role)) {
+      return res.status(400).json(
+        new ApiResponse(400, null, 'Valid role is required (user, admin, vendor, parkingincharge)')
+      );
+    }
+
+    // Check if all users exist
+    const existingUsers = await db
+      .select({ id: users.id, name: users.name, email: users.email, currentRole: users.role })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+    if (existingUsers.length !== userIds.length) {
+      const foundIds = existingUsers.map(u => u.id);
+      const missingIds = userIds.filter(id => !foundIds.includes(id));
+      return res.status(404).json(
+        new ApiResponse(404, null, `Users not found: ${missingIds.join(', ')}`)
+      );
+    }
+
+    // Update roles for all users using individual updates
+    const updatePromises = userIds.map(userId => 
+      db
+        .update(users)
+        .set({ 
+          role: role,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          updatedAt: users.updatedAt
+        })
+    );
+
+    const updateResults = await Promise.all(updatePromises);
+    const updateResult = updateResults.flat();
+
+    // Prepare response with before/after role information
+    const roleAssignments = updateResult.map(updatedUser => {
+      const originalUser = existingUsers.find(u => u.id === updatedUser.id);
+      return {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        previousRole: originalUser?.currentRole,
+        newRole: updatedUser.role,
+        updatedAt: updatedUser.updatedAt
+      };
+    });
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        message: `Successfully assigned role '${role}' to ${roleAssignments.length} user(s)`,
+        roleAssignments,
+        summary: {
+          totalUsers: roleAssignments.length,
+          assignedRole: role,
+          successCount: roleAssignments.length
+        }
+      }, 'User roles assigned successfully')
+    );
+  } catch (error) {
+    console.error('Error assigning user roles:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to assign user roles')
+    );
+  }
+});
+
+// ========================================
+// USER LIST MANAGEMENT
+// ========================================
+
+// Get list of users with search and pagination
+export const getUsersList = asyncHandler(async (req: Request, res: Response) => {
+  const { search, role, limit = 20, offset = 0 } = req.query as {
+    search?: string;
+    role?: string;
+    limit?: number;
+    offset?: number;
+  };
+
+  try {
+    const whereConditions = [];
+
+    // Add search condition
+    if (search) {
+      whereConditions.push(
+        or(
+          like(users.name, `%${search}%`),
+          like(users.email, `%${search}%`),
+          sql`CAST(${users.number} AS TEXT) LIKE ${`%${search}%`}`
+        )!
+      );
+    }
+
+    // Add role filter
+    if (role && ['user', 'admin', 'vendor', 'parkingincharge'].includes(role)) {
+      whereConditions.push(eq(users.role, role as any));
+    }
+
+    // Get users with pagination
+    const usersList = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        number: users.number,
+        avatar: users.avatar,
+        role: users.role,
+        isverified: users.isverified,
+        locality: users.locality,
+        city: users.city,
+        state: users.state,
+        country: users.country,
+        pincode: users.pincode,
+        parkingid: users.parkingid,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
+      .orderBy(desc(users.createdAt))
+      .limit(Number(limit))
+      .offset(Number(offset));
+
+    // Get total count for pagination
+    const totalResult = await db
+      .select({ count: count() })
+      .from(users)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined);
+
+    const total = totalResult[0]?.count || 0;
+
+    // Get additional statistics for each user
+    const usersWithStats = await Promise.all(
+      usersList.map(async (user) => {
+        let additionalStats = {};
+
+        // Get car count for vendors
+        if (user.role === 'vendor') {
+          const carCountResult = await db
+            .select({ count: count() })
+            .from(car)
+            .where(eq(car.vendorid, user.id));
+          additionalStats = { carCount: carCountResult[0]?.count || 0 };
+        }
+
+        // Get parking info for PIC
+        if (user.role === 'parkingincharge' && user.parkingid) {
+          const parkingResult = await db
+            .select({
+              id: parkings.id,
+              name: parkings.name,
+              locality: parkings.locality,
+              city: parkings.city,
+              capacity: parkings.capacity,
+            })
+            .from(parkings)
+            .where(eq(parkings.id, user.parkingid))
+            .limit(1);
+          
+          if (parkingResult.length > 0) {
+            additionalStats = { 
+              parkingInfo: parkingResult[0],
+              // Get cars managed in this parking
+              carsManaged: (await db
+                .select({ count: count() })
+                .from(car)
+                .where(eq(car.parkingid, user.parkingid)))[0]?.count || 0
+            };
+          }
+        }
+
+        // Get booking count for regular users
+        if (user.role === 'user') {
+          const bookingCountResult = await db
+            .select({ count: count() })
+            .from(bookings)
+            .where(eq(bookings.userId, user.id));
+          additionalStats = { bookingCount: bookingCountResult[0]?.count || 0 };
+        }
+
+        return {
+          ...user,
+          ...additionalStats,
+        };
+      })
+    );
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        users: usersWithStats,
+        pagination: {
+          total,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: Number(offset) + Number(limit) < total,
+        },
+      }, 'Users retrieved successfully')
+    );
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to fetch users')
     );
   }
 });
