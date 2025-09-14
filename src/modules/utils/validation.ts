@@ -279,11 +279,7 @@ export const carCatalogCreateSchema = z.object({
   category: z
     .enum(["sedan", "hatchback", "suv", "luxury", "electric"])
     .default("sedan"),
-  lateFeeRate: z
-    .number()
-    .min(0)
-    .max(1, "Late fee rate must be between 0 and 1")
-    .default(0.1),
+  // Late fee rate removed - users can use topup instead
 });
 
 export const carCatalogUpdateSchema = carCatalogCreateSchema.partial();
@@ -454,10 +450,7 @@ export const topupApplySchema = z.object({
   paymentReferenceId: z.string().min(1, "Payment reference ID is required"),
 });
 
-export const lateFeePaymentSchema = z.object({
-  bookingId: z.coerce.number().positive("Invalid booking ID"),
-  paymentReferenceId: z.string().min(1, "Payment reference ID is required"),
-});
+// Late fee payment schema removed - users should use topup instead
 
 export const earningsOverviewSchema = z.object({
   startDate: z

@@ -3,7 +3,7 @@ import { carCatalogTable } from "./carmodel";
 import { db } from "../../drizzle/db";
 import { ApiError } from "../utils/apiError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, like, or, count } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import {
   sendSuccess,
@@ -316,7 +316,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "sedan",
-        lateFeeRate: "0.10", // 10% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Maruti Swift",
@@ -333,7 +333,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=500",
         category: "hatchback",
-        lateFeeRate: "0.08", // 8% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Toyota Innova Crysta",
@@ -351,7 +351,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?w=500",
         category: "suv",
-        lateFeeRate: "0.12", // 12% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Hyundai i20",
@@ -368,7 +368,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?w=500",
         category: "hatchback",
-        lateFeeRate: "0.08", // 8% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Mahindra XUV500",
@@ -385,7 +385,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "suv",
-        lateFeeRate: "0.12", // 12% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Kia Seltos",
@@ -403,7 +403,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=500",
         category: "suv",
-        lateFeeRate: "0.11", // 11% of daily rate per hour
+        // Late fee rate removed
       },
       {
         carName: "Tata Nexon EV",
@@ -421,7 +421,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?w=500",
         category: "electric",
-        lateFeeRate: "0.15", // 15% of daily rate per hour (higher for EVs)
+        // Late fee rate removed
       },
       {
         carName: "BMW 3 Series",
@@ -439,7 +439,7 @@ export const seedCarCatalog = asyncHandler(
         imageUrl:
           "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=500",
         category: "luxury",
-        lateFeeRate: "0.20", // 20% of daily rate per hour (higher for luxury cars)
+        // Late fee rate removed
       },
     ];
 
@@ -478,34 +478,10 @@ export const updateCarCatalogLateFees = asyncHandler(
 
       const updatedEntries = [];
       for (const entry of existingEntries) {
-        let lateFeeRate = "0.10"; // Default 10%
-
-        // Set late fee rates based on category
-        switch (entry.category) {
-          case "hatchback":
-            lateFeeRate = "0.08"; // 8% for hatchbacks
-            break;
-          case "sedan":
-            lateFeeRate = "0.10"; // 10% for sedans
-            break;
-          case "suv":
-            lateFeeRate = "0.12"; // 12% for SUVs
-            break;
-          case "electric":
-            lateFeeRate = "0.15"; // 15% for electric vehicles
-            break;
-          case "luxury":
-            lateFeeRate = "0.20"; // 20% for luxury cars
-            break;
-          default:
-            lateFeeRate = "0.10"; // Default 10%
-        }
-
-        // Update the entry with late fee rate
+        // Late fee rate logic removed - users can use topup instead
         const updatedEntry = await db
           .update(carCatalogTable)
           .set({
-            lateFeeRate: lateFeeRate,
             updatedAt: new Date(),
           })
           .where(eq(carCatalogTable.id, entry.id))
@@ -549,6 +525,257 @@ export const getAllCarCategories = asyncHandler(
       res,
       { categories },
       "Car categories retrieved successfully"
+    );
+  }
+);
+
+// Search car catalog with filters (Admin only)
+export const searchCarCatalog = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can search car catalog");
+    }
+
+    const { q, category, fuelType, transmission, seats, isActive, page = 1, limit = 20 } = req.query;
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const conditions = [];
+
+    // Search query (q parameter)
+    if (q) {
+      const searchTerm = `%${q}%`;
+      conditions.push(
+        or(
+          like(carCatalogTable.carName, searchTerm),
+          like(carCatalogTable.carMaker, searchTerm),
+          sql`CAST(${carCatalogTable.carModelYear} AS TEXT) LIKE ${searchTerm}`
+        )
+      );
+    }
+
+    // Category filter
+    if (category) {
+      conditions.push(eq(carCatalogTable.category, category as string));
+    }
+
+    // Fuel type filter
+    if (fuelType && ['petrol', 'diesel', 'electric', 'hybrid'].includes(fuelType as string)) {
+      conditions.push(eq(carCatalogTable.fuelType, fuelType as 'petrol' | 'diesel' | 'electric' | 'hybrid'));
+    }
+
+    // Transmission filter
+    if (transmission && ['manual', 'automatic'].includes(transmission as string)) {
+      conditions.push(eq(carCatalogTable.transmission, transmission as 'manual' | 'automatic'));
+    }
+
+    // Seats filter
+    if (seats) {
+      conditions.push(eq(carCatalogTable.seats, Number(seats)));
+    }
+
+    // Active status filter
+    if (isActive !== undefined) {
+      conditions.push(eq(carCatalogTable.isActive, isActive === 'true'));
+    }
+
+    const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const results = await withDatabaseErrorHandling(async () => {
+      // Get total count
+      const totalCountResult = await db
+        .select({ count: count() })
+        .from(carCatalogTable)
+        .where(whereCondition);
+
+      const totalCount = totalCountResult[0]?.count || 0;
+
+      // Get paginated results
+      const catalogEntries = await db
+        .select()
+        .from(carCatalogTable)
+        .where(whereCondition)
+        .orderBy(desc(carCatalogTable.createdAt))
+        .limit(Number(limit))
+        .offset(offset);
+
+      return {
+        entries: catalogEntries,
+        totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalCount / Number(limit))
+      };
+    }, "searchCarCatalog");
+
+    return sendSuccess(
+      res,
+      {
+        data: results.entries,
+        pagination: {
+          page: results.page,
+          limit: results.limit,
+          total: results.totalCount,
+          totalPages: results.totalPages,
+          hasNext: results.page < results.totalPages,
+          hasPrev: results.page > 1
+        },
+        filters: {
+          q: q || null,
+          category: category || null,
+          fuelType: fuelType || null,
+          transmission: transmission || null,
+          seats: seats || null,
+          isActive: isActive || null
+        }
+      },
+      "Car catalog search completed successfully"
+    );
+  }
+);
+
+// Get usage statistics for a specific car catalog template
+export const getCatalogUsageStats = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can view catalog usage stats");
+    }
+
+    const { id } = req.params;
+
+    if (!id || !/^[0-9]+$/.test(id)) {
+      throw ApiError.badRequest("Invalid catalog ID");
+    }
+
+    const catalogId = parseInt(id);
+
+    const stats = await withDatabaseErrorHandling(async () => {
+      // Get catalog entry details
+      const catalogEntry = await db
+        .select()
+        .from(carCatalogTable)
+        .where(eq(carCatalogTable.id, catalogId))
+        .limit(1);
+
+      if (!catalogEntry.length) {
+        throw ApiError.notFound("Car catalog entry not found");
+      }
+
+      // Get usage statistics
+      const usageStatsResult = await sql`
+        SELECT 
+          COUNT(c.id) as total_cars,
+          COUNT(CASE WHEN c.status = 'available' THEN 1 END) as available_cars,
+          COUNT(CASE WHEN c.status = 'booked' THEN 1 END) as booked_cars,
+          COUNT(CASE WHEN c.status = 'maintenance' THEN 1 END) as maintenance_cars,
+          COUNT(CASE WHEN c.status = 'unavailable' THEN 1 END) as unavailable_cars,
+          COUNT(CASE WHEN b.id IS NOT NULL THEN 1 END) as total_bookings,
+          COUNT(CASE WHEN b.status = 'active' THEN 1 END) as active_bookings,
+          COUNT(CASE WHEN b.status = 'completed' THEN 1 END) as completed_bookings
+        FROM car_catalog cc
+        LEFT JOIN car c ON c.catalog_id = cc.id
+        LEFT JOIN bookings b ON b.car_id = c.id
+        WHERE cc.id = ${catalogId}
+      `;
+      const usageStats = usageStatsResult || [];
+
+      // Get recent bookings for this catalog
+      const recentBookingsResult = await sql`
+        SELECT 
+          b.id,
+          b.status,
+          b.created_at,
+          b.total_price,
+          u.name as user_name,
+          c.number as car_number
+        FROM bookings b
+        JOIN car c ON c.id = b.car_id
+        LEFT JOIN users u ON u.id = b.user_id
+        WHERE c.catalog_id = ${catalogId}
+        ORDER BY b.created_at DESC
+        LIMIT 10
+      `;
+      const recentBookings = recentBookingsResult || [];
+
+      return {
+        catalog: catalogEntry[0],
+        usage: (usageStats as unknown as any[])[0] || {},
+        recentBookings: (recentBookings as unknown as any[]) || []
+      };
+    }, "getCatalogUsageStats");
+
+    return sendSuccess(
+      res,
+      stats,
+      "Catalog usage statistics retrieved successfully"
+    );
+  }
+);
+
+// Get categories with template counts
+export const getCategoriesWithCounts = asyncHandler(
+  async (
+    req: Request & { user?: { id?: number; role?: string } },
+    res: Response
+  ) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw ApiError.forbidden("Only admins can view category counts");
+    }
+
+      const categoriesWithCounts = await withDatabaseErrorHandling(async () => {
+      // Get all categories with their counts using Drizzle queries
+      const allCategories = await db.select({
+        category: carCatalogTable.category,
+        isActive: carCatalogTable.isActive
+      }).from(carCatalogTable);
+
+      // Group by category and calculate counts
+      const categoryStats = allCategories.reduce((acc: any, item) => {
+        const category = item.category || 'unknown';
+        if (!acc[category]) {
+          acc[category] = {
+            category,
+            template_count: 0,
+            active_templates: 0,
+            inactive_templates: 0
+          };
+        }
+        acc[category].template_count++;
+        if (item.isActive) {
+          acc[category].active_templates++;
+        } else {
+          acc[category].inactive_templates++;
+        }
+        return acc;
+      }, {});
+
+      const categoryStatsArray = Object.values(categoryStats).sort((a: any, b: any) => b.template_count - a.template_count);
+
+      // Get total statistics
+      const totalTemplates = allCategories.length;
+      const totalActiveTemplates = allCategories.filter(c => c.isActive).length;
+      const totalCategories = Object.keys(categoryStats).length;
+
+      return {
+        categories: categoryStatsArray,
+        summary: {
+          total_templates: totalTemplates,
+          total_active_templates: totalActiveTemplates,
+          total_categories: totalCategories
+        }
+      };
+    }, "getCategoriesWithCounts");
+
+    return sendSuccess(
+      res,
+      categoriesWithCounts,
+      "Categories with counts retrieved successfully"
     );
   }
 );

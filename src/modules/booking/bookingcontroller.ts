@@ -2095,8 +2095,8 @@ export const confirmCarPickup = asyncHandler<AuthenticatedRequest>(
   }
 );
 
-// Calculate late fees for overdue booking (auto-calculated based on car catalog)
-export const calculateLateFees = asyncHandler<AuthenticatedRequest>(
+// Get booking timeline status (replaces late fee calculation)
+export const getBookingTimelineStatus = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
     const { bookingId } = req.params;
 
@@ -2113,6 +2113,8 @@ export const calculateLateFees = asyncHandler<AuthenticatedRequest>(
             catalog: true,
           },
         },
+        advancePayment: true,
+        finalPayment: true,
       },
     });
 
@@ -2124,128 +2126,51 @@ export const calculateLateFees = asyncHandler<AuthenticatedRequest>(
 
     if (booking.userId !== req.user.id) {
       throw ApiError.forbidden(
-        "You can only calculate late fees for your own bookings"
+        "You can only view status for your own bookings"
       );
     }
 
     const now = new Date();
     const endDate = new Date(booking.extensionTill || booking.endDate);
     const isOverdue = now > endDate;
+    const hasTopup = booking.extensionTill !== null;
 
-    let lateFees = 0;
-    let overdueHours = 0;
-    let hourlyRate = 0;
+    // Calculate overdue hours for display purposes only
+    const overdueHours = isOverdue ? Math.ceil(
+      (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
+    ) : 0;
 
-    if (isOverdue) {
-      const diffInHours = Math.ceil(
-        (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
-      );
-      overdueHours = diffInHours;
-
-      // Calculate hourly rate based on car catalog late fee rate
-      const dailyRate = booking.basePrice || 0;
-      const lateFeeRate = 0.1; // Default 10%
-      hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
-      lateFees = hourlyRate * diffInHours;
+    // Determine booking status
+    let bookingStatus = "ontime";
+    if (hasTopup && isOverdue) {
+      bookingStatus = "topup/late";
+    } else if (hasTopup && !isOverdue) {
+      bookingStatus = "topup/ontime";
+    } else if (!hasTopup && isOverdue) {
+      bookingStatus = "late";
     }
 
     return sendSuccess(
       res,
       {
         bookingId: booking.id,
+        bookingStatus,
         isOverdue,
+        hasTopup,
         overdueHours,
-        lateFees: Math.round(lateFees * 100) / 100,
-        hourlyRate: Math.round(hourlyRate * 100) / 100,
         currentEndDate: booking.extensionTill || booking.endDate,
-        carName: "Unknown Car",
-        lateFeesPaid: booking.lateFeesPaymentId !== null || false,
+        originalEndDate: booking.endDate,
+        extensionTill: booking.extensionTill,
+        carName: "Unknown Car", // Car name not available in this query
+        canUseTopup: true, // Users can always use topup if needed
+        topupPrice: booking.extensionPrice || 0,
       },
-      "Late fees calculated successfully"
+      "Booking timeline status retrieved successfully"
     );
   }
 );
 
-// Pay late fees for overdue booking
-export const payLateFees = asyncHandler<AuthenticatedRequest>(
-  async (req: AuthenticatedRequest, res: Response) => {
-    const { bookingId, paymentReferenceId } = req.body;
-
-    if (!bookingId || !paymentReferenceId) {
-      throw ApiError.badRequest(
-        "Booking ID and payment reference ID are required"
-      );
-    }
-
-    const result = await db.query.bookingsTable.findFirst({
-      where: (bookingsTable, { eq }) => eq(bookingsTable.id, bookingId),
-      with: {
-        car: {
-          with: {
-            catalog: true,
-          },
-        },
-      },
-    });
-
-    if (!result) {
-      throw ApiError.notFound("Booking not found");
-    }
-
-    const booking = result;
-
-    if (booking.userId !== req.user.id) {
-      throw ApiError.forbidden(
-        "You can only pay late fees for your own bookings"
-      );
-    }
-
-    if (booking.lateFeesPaymentId !== null) {
-      throw ApiError.badRequest(
-        "Late fees have already been paid for this booking"
-      );
-    }
-
-    // Calculate current late fees
-    const now = new Date();
-    const endDate = new Date(booking.extensionTill || booking.endDate);
-    const isOverdue = now > endDate;
-
-    if (!isOverdue) {
-      throw ApiError.badRequest("No late fees to pay - booking is not overdue");
-    }
-
-    const diffInHours = Math.ceil(
-      (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
-    );
-    const dailyRate = booking.basePrice || 0;
-    const lateFeeRate = 0.1;
-    const hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
-    const lateFees = hourlyRate * diffInHours;
-
-    // Update booking with late fees payment
-    const updatedBooking = await db
-      .update(bookingsTable)
-      .set({
-        lateFees: Math.round(lateFees * 100) / 100,
-        // lateFeesPaid: true, // Use payments table instead
-        // lateFeesPaymentReferenceId: paymentReferenceId, // Use payments table instead
-        // lateFeesPaidAt: now, // Use payments table instead
-      })
-      .where(eq(bookingsTable.id, bookingId))
-      .returning();
-
-    return sendSuccess(
-      res,
-      {
-        booking: updatedBooking[0],
-        lateFees: Math.round(lateFees * 100) / 100,
-        paymentReferenceId,
-      },
-      "Late fees paid successfully"
-    );
-  }
-);
+// Function removed - users should use topup instead of late fees
 
 // Confirm car return (PIC confirms car has been returned to parking lot)
 export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
@@ -2303,12 +2228,7 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
     const endDate = new Date(booking.extensionTill || booking.endDate);
     const isOverdue = now > endDate;
 
-    // Check if late fees are paid (if overdue)
-    if (isOverdue && !booking.lateFeesPaymentId !== null) {
-      throw ApiError.badRequest(
-        "Late fees must be paid before car can be returned. Please use the pay-late-fees endpoint first."
-      );
-    }
+    // No late fee check needed - users can use topup if needed
 
     const updatedBooking = await db
       .update(bookingsTable)
@@ -2331,10 +2251,7 @@ export const confirmCarReturn = asyncHandler<AuthenticatedRequest>(
       })
       .where(eq(carModel.id, booking.carId));
 
-    const message =
-      booking.lateFees && booking.lateFees > 0 && booking.lateFeesPaymentId !== null
-        ? `Car return confirmed successfully. Late fees of ₹${booking.lateFees} were already paid. Car is now available for new bookings.`
-        : "Car return confirmed successfully. Car is now available for new bookings.";
+    const message = "Car return confirmed successfully. Car is now available for new bookings.";
 
     return sendUpdated(res, updatedBooking[0], message);
   }
@@ -2382,7 +2299,7 @@ export const getEarningsOverview = asyncHandler<AuthenticatedRequest>(
       totalAdvancePayments += booking.advanceAmount || 0;
       totalFinalPayments += booking.remainingAmount || 0;
       totalExtensionPayments += booking.extensionPrice || 0;
-      totalLateFees += booking.lateFees || 0;
+      // Late fees removed
       totalDeliveryCharges += booking.deliveryCharges || 0;
     });
 
@@ -2407,7 +2324,7 @@ export const getEarningsOverview = asyncHandler<AuthenticatedRequest>(
           totalFinalPayments: Math.round(totalFinalPayments * 100) / 100,
           totalExtensionPayments:
             Math.round(totalExtensionPayments * 100) / 100,
-          totalLateFees: Math.round(totalLateFees * 100) / 100,
+          // Late fees removed
           totalDeliveryCharges: Math.round(totalDeliveryCharges * 100) / 100,
         },
         breakdown: result.map((booking) => ({
@@ -2418,13 +2335,13 @@ export const getEarningsOverview = asyncHandler<AuthenticatedRequest>(
               (booking.advanceAmount || 0) +
                 (booking.remainingAmount || 0) +
                 (booking.extensionPrice || 0) +
-                (booking.lateFees || 0) +
+                // Late fees removed
                 (booking.deliveryCharges || 0) * 100
             ) / 100,
           advanceAmount: booking.advanceAmount || 0,
           finalAmount: booking.remainingAmount || 0,
           extensionAmount: booking.extensionPrice || 0,
-          lateFees: booking.lateFees || 0,
+          // Late fees removed
           deliveryCharges: booking.deliveryCharges || 0,
           completedAt: booking.actualDropoffDate,
         })),
@@ -2434,7 +2351,7 @@ export const getEarningsOverview = asyncHandler<AuthenticatedRequest>(
   }
 );
 
-// Check if booking is overdue and calculate late fees
+// Check if booking is overdue (replaces late fee calculation)
 export const checkBookingOverdue = asyncHandler<AuthenticatedRequest>(
   async (req: AuthenticatedRequest, res: Response) => {
     const { bookingId } = req.params;
@@ -2468,35 +2385,38 @@ export const checkBookingOverdue = asyncHandler<AuthenticatedRequest>(
     const now = new Date();
     const endDate = new Date(booking.extensionTill || booking.endDate);
     const isOverdue = now > endDate;
+    const hasTopup = booking.extensionTill !== null;
 
-    let lateFees = 0;
-    let overdueHours = 0;
+    // Calculate overdue hours for display purposes only
+    const overdueHours = isOverdue ? Math.ceil(
+      (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
+    ) : 0;
 
-    if (isOverdue) {
-      const diffInHours = Math.ceil(
-        (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
-      );
-      overdueHours = diffInHours;
-
-      // Calculate late fees based on car catalog late fee rate
-      const dailyRate = booking.basePrice || 0;
-      const lateFeeRate = 0.1;
-      const hourlyRate = (dailyRate / 24) * parseFloat(lateFeeRate.toString());
-      lateFees = hourlyRate * diffInHours;
+    // Determine booking status
+    let bookingStatus = "ontime";
+    if (hasTopup && isOverdue) {
+      bookingStatus = "topup/late";
+    } else if (hasTopup && !isOverdue) {
+      bookingStatus = "topup/ontime";
+    } else if (!hasTopup && isOverdue) {
+      bookingStatus = "late";
     }
 
     return sendSuccess(
       res,
       {
         bookingId: booking.id,
+        bookingStatus,
         isOverdue,
+        hasTopup,
         overdueHours,
-        lateFees: Math.round(lateFees * 100) / 100,
         currentEndDate: booking.extensionTill || booking.endDate,
+        originalEndDate: booking.endDate,
         extensionTill: booking.extensionTill,
         extensionTime: booking.extensionTime,
         extensionPrice: booking.extensionPrice,
-        lateFeesPaid: booking.lateFeesPaymentId !== null || false,
+        canUseTopup: true, // Users can always use topup if needed
+        carName: "Unknown Car", // Car name not available in this query
       },
       "Booking overdue status checked successfully"
     );
@@ -2863,8 +2783,7 @@ export const getDropoffCars = asyncHandler(
           finalPaymentId: bookingsTable.finalPaymentId,
           extensionPrice: bookingsTable.extensionPrice,
           extensionTill: bookingsTable.extensionTill,
-          lateFees: bookingsTable.lateFees,
-          lateFeesPaymentId: bookingsTable.lateFeesPaymentId,
+          // Late fees removed
           returnCondition: bookingsTable.returnCondition,
           returnComments: bookingsTable.returnComments,
           pickupParkingId: bookingsTable.pickupParkingId,
@@ -3408,8 +3327,7 @@ export const getAllBookings = asyncHandler<AuthenticatedRequest>(
           extensionPrice: bookingsTable.extensionPrice,
           extensionTill: bookingsTable.extensionTill,
           extensionTime: bookingsTable.extensionTime,
-          lateFees: bookingsTable.lateFees,
-          lateFeesPaymentId: bookingsTable.lateFeesPaymentId,
+          // Late fees removed
           // lateFeesPaymentReferenceId: bookingsTable.lateFeesPaymentReferenceId, // Removed in migration
           // lateFeesPaidAt: bookingsTable.lateFeesPaidAt, // Removed in migration
           returnCondition: bookingsTable.returnCondition,
@@ -3565,10 +3483,7 @@ export const getAllBookings = asyncHandler<AuthenticatedRequest>(
         extensionPrice: bookingData.extensionPrice,
         extensionTill: bookingData.extensionTill,
         extensionTime: bookingData.extensionTime,
-        lateFees: bookingData.lateFees,
-        lateFeesPaid: bookingData.lateFeesPaymentId !== null,
-        lateFeesPaymentReferenceId: null,
-        lateFeesPaidAt: bookingData.lateFeesPaymentId !== null,
+        // Late fees removed
         returnCondition: bookingData.returnCondition,
         returnImages: bookingData.returnImages,
         returnComments: bookingData.returnComments,

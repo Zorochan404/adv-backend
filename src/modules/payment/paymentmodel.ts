@@ -17,7 +17,6 @@ import { topupTable } from "../booking/topupmodel";
 export const paymentTypeEnum = pgEnum("payment_type", [
   "advance",      // Advance payment for booking
   "final",        // Final payment for booking
-  "late_fees",    // Late fees payment
   "topup",        // Topup/extension payment
   "refund",       // Refund payment
   "penalty",      // Penalty payment
@@ -171,9 +170,6 @@ export const bookingPaymentRelations = relations(bookingsTable, ({ one, many }) 
     fields: [bookingsTable.finalPaymentId],
     references: [paymentsTable.id],
   }),
-  lateFeesPayment: one(paymentsTable, {
-    fields: [bookingsTable.lateFeesPaymentId],
-    references: [paymentsTable.id],
-  }),
+  // Late fees payment relation removed
   payments: many(paymentsTable),
 }));

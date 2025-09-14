@@ -58,8 +58,7 @@ export const bookingsTable = pgTable("bookings", {
   extensionTill: timestamp("extension_till"),
   extensionTime: integer("extension_time"), // in hours
 
-  // Late fees
-  lateFees: doublePrecision("late_fees").default(0), // Late fees for overdue returns
+  // Late fees removed - users can use topup instead
 
   // Car return details
   returnCondition: varchar("return_condition", { length: 50 }).default("good"), // good, fair, poor
@@ -75,7 +74,6 @@ export const bookingsTable = pgTable("bookings", {
   // Payment tracking - now references payments table
   advancePaymentId: integer("advance_payment_id"),
   finalPaymentId: integer("final_payment_id"),
-  lateFeesPaymentId: integer("late_fees_payment_id"),
 
   // Car condition verification
   carConditionImages: varchar("car_condition_images", { length: 500 })

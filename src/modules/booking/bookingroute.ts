@@ -24,8 +24,7 @@ import {
   confirmCarPickup,
   checkBookingOverdue,
   applyTopupToBooking,
-  calculateLateFees,
-  payLateFees,
+  getBookingTimelineStatus,
   confirmCarReturn,
   getEarningsOverview,
   getPICBookings,
@@ -57,7 +56,7 @@ import {
   bookingCarReturnSchema,
   paginationQuerySchema,
   topupApplySchema,
-  lateFeePaymentSchema,
+  // Late fee payment schema removed
   earningsOverviewSchema,
   picDateFilterSchema,
 } from "../utils/validation";
@@ -222,18 +221,12 @@ router.post(
   validateRequest(topupApplySchema),
   applyTopupToBooking
 );
+// Get booking timeline status (replaces late fee calculation)
 router.get(
-  "/:bookingId/late-fees", 
+  "/:bookingId/timeline-status", 
   verifyJWT, 
   requirePermission(Permission.READ_BOOKING),
-  calculateLateFees
-);
-router.post(
-  "/pay-late-fees",
-  verifyJWT,
-  requirePermission(Permission.MANAGE_BOOKING_PAYMENTS),
-  validateRequest(lateFeePaymentSchema),
-  payLateFees
+  getBookingTimelineStatus
 );
 
 // Confirm car return (PIC confirms car has been returned to parking lot)

@@ -475,3 +475,103 @@ export const getRecentBookings = asyncHandler(async (req: Request, res: Response
     );
   }
 });
+
+// Get booking timeline and status overview for admin dashboard
+export const getBookingTimelineOverview = asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+    
+    // Get all active bookings
+    const activeBookings = await db.select()
+      .from(bookings)
+      .where(sql`${bookings.status} IN ('active', 'confirmed')`);
+
+    const [carsData, usersData] = await Promise.all([
+      db.select().from(car),
+      db.select().from(users)
+    ]);
+
+    const bookingTimeline = activeBookings.map(booking => {
+      const car = carsData.find(c => c.id === booking.carId);
+      const user = usersData.find(u => u.id === booking.userId);
+      
+      const endDate = new Date(booking.extensionTill || booking.endDate);
+      const isOverdue = now > endDate;
+      const hasTopup = booking.extensionTill !== null;
+
+      // Determine booking status
+      let bookingStatus = "ontime";
+      if (hasTopup && isOverdue) {
+        bookingStatus = "topup/late";
+      } else if (hasTopup && !isOverdue) {
+        bookingStatus = "topup/ontime";
+      } else if (!hasTopup && isOverdue) {
+        bookingStatus = "late";
+      }
+
+      // Calculate overdue hours for display
+      const overdueHours = isOverdue ? Math.ceil(
+        (now.getTime() - endDate.getTime()) / (1000 * 60 * 60)
+      ) : 0;
+
+      return {
+        bookingId: booking.id,
+        status: booking.status,
+        bookingStatus, // ontime, late, topup/ontime, topup/late
+        isOverdue,
+        hasTopup,
+        overdueHours,
+        currentEndDate: booking.extensionTill || booking.endDate,
+        originalEndDate: booking.endDate,
+        extensionTill: booking.extensionTill,
+        car: car ? {
+          name: car.name,
+          number: car.number,
+          id: car.id
+        } : null,
+        user: user ? {
+          name: user.name,
+          id: user.id,
+          phone: user.number
+        } : null,
+        createdAt: booking.createdAt,
+        actualPickupDate: booking.actualPickupDate,
+        // Admin can see if car needs to be cut off after 1 hour of no response
+        requiresAction: isOverdue && overdueHours >= 1,
+        actionRequired: isOverdue && overdueHours >= 1 ? "ENGINE_CUT_APPROVAL" : null
+      };
+    });
+
+    // Sort by urgency (overdue bookings first, then by overdue hours)
+    const sortedTimeline = bookingTimeline.sort((a, b) => {
+      if (a.isOverdue && !b.isOverdue) return -1;
+      if (!a.isOverdue && b.isOverdue) return 1;
+      if (a.isOverdue && b.isOverdue) return b.overdueHours - a.overdueHours;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+
+    // Calculate summary statistics
+    const summary = {
+      totalActiveBookings: bookingTimeline.length,
+      ontimeBookings: bookingTimeline.filter(b => b.bookingStatus === "ontime").length,
+      lateBookings: bookingTimeline.filter(b => b.bookingStatus === "late").length,
+      topupOntimeBookings: bookingTimeline.filter(b => b.bookingStatus === "topup/ontime").length,
+      topupLateBookings: bookingTimeline.filter(b => b.bookingStatus === "topup/late").length,
+      requiresAction: bookingTimeline.filter(b => b.requiresAction).length
+    };
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        summary,
+        timeline: sortedTimeline,
+        lastUpdated: now
+      }, "Booking timeline overview retrieved successfully")
+    );
+
+  } catch (error) {
+    console.error('Booking timeline overview error:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, "Failed to retrieve booking timeline overview")
+    );
+  }
+});

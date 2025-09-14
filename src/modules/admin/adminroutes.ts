@@ -6,6 +6,7 @@ import {
   getParkingUtilization,
   getRevenueTrends,
   getRecentBookings,
+  getBookingTimelineOverview,
 } from "./admincontroller";
 import { verifyJWT } from "../middleware/auth";
 import { requireAdmin, requirePermission, Permission } from "../middleware/rbac";
@@ -79,6 +80,14 @@ router.get(
   requireAdmin,
   validateRequest(limitQuerySchema),
   getRecentBookings
+);
+
+// Booking timeline overview with status tracking
+router.get(
+  "/dashboard/booking-timeline",
+  verifyJWT,
+  requireAdmin,
+  getBookingTimelineOverview
 );
 
 // ========================================
