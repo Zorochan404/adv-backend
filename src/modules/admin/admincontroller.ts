@@ -5,7 +5,7 @@ import { carModel as car } from "../car/carmodel";
 import { UserTable as users } from "../user/usermodel";
 import { parkingTable as parkings } from "../parking/parkingmodel";
 import { reviewModel as review } from "../review/reviewmodel";
-import { eq, gte, desc, count, sum, and, sql } from "drizzle-orm";
+import { eq, gte, desc, count, sum, and, sql, like, or } from "drizzle-orm";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiResponse } from "../utils/apiResponse";
 
@@ -572,6 +572,207 @@ export const getBookingTimelineOverview = asyncHandler(async (req: Request, res:
     console.error('Booking timeline overview error:', error);
     return res.status(500).json(
       new ApiResponse(500, null, "Failed to retrieve booking timeline overview")
+    );
+  }
+});
+
+// ========================================
+// VENDOR MANAGEMENT
+// ========================================
+
+// Get list of vendors
+export const getVendorsList = asyncHandler(async (req: Request, res: Response) => {
+  const { search, limit = 20, offset = 0 } = req.query as {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  };
+
+  try {
+    // Build where conditions
+    const whereConditions = [eq(users.role, 'vendor')];
+
+    // Add search condition if provided
+    if (search) {
+      whereConditions.push(
+        or(
+          like(users.name, `%${search}%`),
+          like(users.email, `%${search}%`),
+          sql`CAST(${users.number} AS TEXT) LIKE ${`%${search}%`}`
+        )!
+      );
+    }
+
+    // Get vendors with pagination
+    const vendors = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        number: users.number,
+        avatar: users.avatar,
+        locality: users.locality,
+        city: users.city,
+        state: users.state,
+        isverified: users.isverified,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .where(and(...whereConditions))
+      .orderBy(desc(users.createdAt))
+      .limit(Number(limit))
+      .offset(Number(offset));
+
+    // Get total count for pagination
+    const totalResult = await db
+      .select({ count: count() })
+      .from(users)
+      .where(and(...whereConditions));
+
+    const total = totalResult[0]?.count || 0;
+
+    // Get car count for each vendor
+    const vendorsWithCarCount = await Promise.all(
+      vendors.map(async (vendor) => {
+        const carCountResult = await db
+          .select({ count: count() })
+          .from(car)
+          .where(eq(car.vendorid, vendor.id));
+
+        return {
+          ...vendor,
+          carCount: carCountResult[0]?.count || 0,
+        };
+      })
+    );
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        vendors: vendorsWithCarCount,
+        pagination: {
+          total,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: Number(offset) + Number(limit) < total,
+        },
+      }, 'Vendors retrieved successfully')
+    );
+  } catch (error) {
+    console.error('Error fetching vendors:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to fetch vendors')
+    );
+  }
+});
+
+// ========================================
+// PARKING MANAGEMENT
+// ========================================
+
+// Get list of parkings
+export const getParkingsList = asyncHandler(async (req: Request, res: Response) => {
+  const { search, limit = 20, offset = 0 } = req.query as {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  };
+
+  try {
+    // Build where conditions
+    const whereConditions = [];
+
+    // Add search condition if provided
+    if (search) {
+      whereConditions.push(
+        or(
+          like(parkings.name, `%${search}%`),
+          like(parkings.locality, `%${search}%`),
+          like(parkings.city, `%${search}%`),
+          like(parkings.state, `%${search}%`)
+        )!
+      );
+    }
+
+    // Get parkings with pagination
+    const parkingList = await db
+      .select({
+        id: parkings.id,
+        name: parkings.name,
+        locality: parkings.locality,
+        city: parkings.city,
+        state: parkings.state,
+        country: parkings.country,
+        pincode: parkings.pincode,
+        capacity: parkings.capacity,
+        mainimg: parkings.mainimg,
+        images: parkings.images,
+        lat: parkings.lat,
+        lng: parkings.lng,
+        createdAt: parkings.createdAt,
+        updatedAt: parkings.updatedAt,
+      })
+      .from(parkings)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
+      .orderBy(desc(parkings.createdAt))
+      .limit(Number(limit))
+      .offset(Number(offset));
+
+    // Get total count for pagination
+    const totalResult = await db
+      .select({ count: count() })
+      .from(parkings)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined);
+
+    const total = totalResult[0]?.count || 0;
+
+    // Get car count and availability for each parking
+    const parkingsWithStats = await Promise.all(
+      parkingList.map(async (parking) => {
+        // Get total cars in this parking
+        const totalCarsResult = await db
+          .select({ count: count() })
+          .from(car)
+          .where(eq(car.parkingid, parking.id));
+
+        // Get available cars in this parking
+        const availableCarsResult = await db
+          .select({ count: count() })
+          .from(car)
+          .where(and(
+            eq(car.parkingid, parking.id),
+            eq(car.isavailable, true),
+            eq(car.inmaintainance, false)
+          ));
+
+        const totalCars = totalCarsResult[0]?.count || 0;
+        const availableCars = availableCarsResult[0]?.count || 0;
+        const utilizationPercentage = parking.capacity > 0 ? Math.round((totalCars / parking.capacity) * 100) : 0;
+
+        return {
+          ...parking,
+          totalCars,
+          availableCars,
+          utilizationPercentage,
+        };
+      })
+    );
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        parkings: parkingsWithStats,
+        pagination: {
+          total,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: Number(offset) + Number(limit) < total,
+        },
+      }, 'Parkings retrieved successfully')
+    );
+  } catch (error) {
+    console.error('Error fetching parkings:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to fetch parkings')
     );
   }
 });

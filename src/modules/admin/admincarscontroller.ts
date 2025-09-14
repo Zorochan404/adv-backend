@@ -33,6 +33,24 @@ interface CarData {
   mainimg: string;
   vendorid: number;
   parkingid: number | null;
+  catalogId: number | null;
+  // Vendor object with complete details
+  vendor?: {
+    id: number;
+    name: string;
+    avatar: string | null;
+    email: string | null;
+    number: number | null;
+  } | null;
+  // Parking object with complete details
+  parking?: {
+    id: number;
+    name: string;
+    mainimg: string | null;
+    locality: string | null;
+    city: string | null;
+    capacity: number;
+  } | null;
   isapproved: boolean;
   ispopular: boolean;
   createdAt: string;
@@ -55,6 +73,19 @@ interface CarFilters {
   popularOnly?: boolean;
   startDate?: string;
   endDate?: string;
+  // Additional filtering options
+  maker?: string;
+  type?: string;
+  fuel?: string;
+  transmission?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  minYear?: number;
+  maxYear?: number;
+  seats?: number;
+  color?: string;
+  vendorId?: number;
+  parkingId?: number;
   limit?: number;
   offset?: number;
 }
@@ -67,6 +98,18 @@ export const getAllCars = asyncHandler(async (req: Request, res: Response) => {
     popularOnly = false,
     startDate,
     endDate,
+    maker,
+    type,
+    fuel,
+    transmission,
+    minPrice,
+    maxPrice,
+    minYear,
+    maxYear,
+    seats,
+    color,
+    vendorId,
+    parkingId,
     limit = 100,
     offset = 0
   } = req.query as CarFilters;
@@ -139,6 +182,55 @@ export const getAllCars = asyncHandler(async (req: Request, res: Response) => {
       }
     }
 
+    // Apply additional filters
+    if (maker) {
+      whereConditions.push(like(carCatalogTable.carMaker, `%${maker}%`));
+    }
+
+    if (type) {
+      whereConditions.push(eq(carCatalogTable.category, type));
+    }
+
+    if (fuel) {
+      whereConditions.push(eq(carCatalogTable.fuelType, fuel as any));
+    }
+
+    if (transmission) {
+      whereConditions.push(eq(carCatalogTable.transmission, transmission as any));
+    }
+
+    if (minPrice !== undefined) {
+      whereConditions.push(gte(carModel.price, minPrice));
+    }
+
+    if (maxPrice !== undefined) {
+      whereConditions.push(lte(carModel.price, maxPrice));
+    }
+
+    if (minYear !== undefined) {
+      whereConditions.push(gte(carCatalogTable.carModelYear, minYear));
+    }
+
+    if (maxYear !== undefined) {
+      whereConditions.push(lte(carCatalogTable.carModelYear, maxYear));
+    }
+
+    if (seats !== undefined) {
+      whereConditions.push(eq(carCatalogTable.seats, seats));
+    }
+
+    if (color) {
+      whereConditions.push(like(carModel.color, `%${color}%`));
+    }
+
+    if (vendorId !== undefined) {
+      whereConditions.push(eq(carModel.vendorid, vendorId));
+    }
+
+    if (parkingId !== undefined) {
+      whereConditions.push(eq(carModel.parkingid, parkingId));
+    }
+
     // Build the final query with all conditions
     const cars = await db
       .select({
@@ -159,6 +251,7 @@ export const getAllCars = asyncHandler(async (req: Request, res: Response) => {
         images: carModel.images,
         vendorid: carModel.vendorid,
         parkingid: carModel.parkingid,
+        catalogId: carModel.catalogId,
         status: carModel.status,
         createdAt: carModel.createdAt,
         updatedAt: carModel.updatedAt,
@@ -170,9 +263,18 @@ export const getAllCars = asyncHandler(async (req: Request, res: Response) => {
         type: carCatalogTable.category,
         seats: carCatalogTable.seats,
         // Vendor fields
+        vendorId: UserTable.id,
         vendorName: UserTable.name,
+        vendorAvatar: UserTable.avatar,
+        vendorEmail: UserTable.email,
+        vendorNumber: UserTable.number,
         // Parking fields
+        parkingId: parkingTable.id,
         parkingName: parkingTable.name,
+        parkingMainImg: parkingTable.mainimg,
+        parkingLocality: parkingTable.locality,
+        parkingCity: parkingTable.city,
+        parkingCapacity: parkingTable.capacity,
       })
       .from(carModel)
       .leftJoin(carCatalogTable, eq(carModel.catalogId, carCatalogTable.id))
@@ -208,6 +310,24 @@ export const getAllCars = asyncHandler(async (req: Request, res: Response) => {
       mainimg: car.images?.[0] || '',
       vendorid: car.vendorid,
       parkingid: car.parkingid,
+      catalogId: car.catalogId,
+      // Vendor object with complete details
+      vendor: car.vendorId ? {
+        id: car.vendorId,
+        name: car.vendorName || 'Unknown Vendor',
+        avatar: car.vendorAvatar || null,
+        email: car.vendorEmail || null,
+        number: car.vendorNumber || null
+      } : null,
+      // Parking object with complete details
+      parking: car.parkingId ? {
+        id: car.parkingId,
+        name: car.parkingName || 'Unknown Parking',
+        mainimg: car.parkingMainImg || null,
+        locality: car.parkingLocality || null,
+        city: car.parkingCity || null,
+        capacity: car.parkingCapacity || 0
+      } : null,
       isapproved: true, // Assuming all cars are approved
       ispopular: false, // Will be calculated separately if needed
       createdAt: car.createdAt.toISOString(),
@@ -278,6 +398,7 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
         images: carModel.images,
         vendorid: carModel.vendorid,
         parkingid: carModel.parkingid,
+        catalogId: carModel.catalogId,
         status: carModel.status,
         createdAt: carModel.createdAt,
         updatedAt: carModel.updatedAt,
@@ -289,9 +410,18 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
         type: carCatalogTable.category,
         seats: carCatalogTable.seats,
         // Vendor fields
+        vendorId: UserTable.id,
         vendorName: UserTable.name,
+        vendorAvatar: UserTable.avatar,
+        vendorEmail: UserTable.email,
+        vendorNumber: UserTable.number,
         // Parking fields
+        parkingId: parkingTable.id,
         parkingName: parkingTable.name,
+        parkingMainImg: parkingTable.mainimg,
+        parkingLocality: parkingTable.locality,
+        parkingCity: parkingTable.city,
+        parkingCapacity: parkingTable.capacity,
       })
       .from(carModel)
       .leftJoin(carCatalogTable, eq(carModel.catalogId, carCatalogTable.id))
@@ -331,6 +461,24 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
       mainimg: carData.images?.[0] || '',
       vendorid: carData.vendorid,
       parkingid: carData.parkingid,
+      catalogId: carData.catalogId,
+      // Vendor object with complete details
+      vendor: carData.vendorId ? {
+        id: carData.vendorId,
+        name: carData.vendorName || 'Unknown Vendor',
+        avatar: carData.vendorAvatar || null,
+        email: carData.vendorEmail || null,
+        number: carData.vendorNumber || null
+      } : null,
+      // Parking object with complete details
+      parking: carData.parkingId ? {
+        id: carData.parkingId,
+        name: carData.parkingName || 'Unknown Parking',
+        mainimg: carData.parkingMainImg || null,
+        locality: carData.parkingLocality || null,
+        city: carData.parkingCity || null,
+        capacity: carData.parkingCapacity || 0
+      } : null,
       isapproved: true,
       ispopular: false,
       createdAt: carData.createdAt.toISOString(),
@@ -344,6 +492,197 @@ export const getCarById = asyncHandler(async (req: Request, res: Response) => {
     console.error('Error fetching car details:', error);
     return res.status(500).json(
       new ApiResponse(500, null, 'Failed to fetch car details')
+    );
+  }
+});
+
+// Update car information (Admin only)
+export const updateCar = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const updateData = req.body;
+
+  try {
+    // First, check if the car exists
+    const existingCar = await db
+      .select()
+      .from(carModel)
+      .where(eq(carModel.id, Number(id)))
+      .limit(1);
+
+    if (existingCar.length === 0) {
+      return res.status(404).json(
+        new ApiResponse(404, null, 'Car not found')
+      );
+    }
+
+    const car = existingCar[0];
+
+    // Prepare update data for car table
+    const carUpdateData: any = {};
+    
+    // Map the incoming data to car model fields
+    if (updateData.name !== undefined) carUpdateData.name = updateData.name;
+    if (updateData.price !== undefined) carUpdateData.price = updateData.price;
+    if (updateData.discountprice !== undefined) carUpdateData.discountprice = updateData.discountprice;
+    if (updateData.insuranceAmount !== undefined) carUpdateData.insuranceAmount = updateData.insuranceAmount;
+    if (updateData.color !== undefined) carUpdateData.color = updateData.color;
+    if (updateData.rcnumber !== undefined) carUpdateData.rcnumber = updateData.rcnumber;
+    if (updateData.rcimg !== undefined) carUpdateData.rcimg = updateData.rcimg;
+    if (updateData.pollutionimg !== undefined) carUpdateData.pollutionimg = updateData.pollutionimg;
+    if (updateData.insuranceimg !== undefined) carUpdateData.insuranceimg = updateData.insuranceimg;
+    if (updateData.images !== undefined) carUpdateData.images = updateData.images;
+    if (updateData.vendorid !== undefined) carUpdateData.vendorid = updateData.vendorid;
+    if (updateData.parkingid !== undefined) carUpdateData.parkingid = updateData.parkingid;
+    if (updateData.isavailable !== undefined) carUpdateData.isavailable = updateData.isavailable;
+    if (updateData.inmaintainance !== undefined) carUpdateData.inmaintainance = updateData.inmaintainance;
+    if (updateData.status !== undefined) carUpdateData.status = updateData.status;
+
+    // Update car number if provided
+    if (updateData.carnumber !== undefined) carUpdateData.number = updateData.carnumber;
+
+    // Update car table
+    if (Object.keys(carUpdateData).length > 0) {
+      await db
+        .update(carModel)
+        .set(carUpdateData)
+        .where(eq(carModel.id, Number(id)));
+    }
+
+    // Prepare update data for catalog table
+    const catalogUpdateData: any = {};
+    
+    if (updateData.maker !== undefined) catalogUpdateData.carMaker = updateData.maker;
+    if (updateData.year !== undefined) catalogUpdateData.carModelYear = updateData.year;
+    if (updateData.transmission !== undefined) catalogUpdateData.transmission = updateData.transmission;
+    if (updateData.fuel !== undefined) catalogUpdateData.fuelType = updateData.fuel;
+    if (updateData.seats !== undefined) catalogUpdateData.seats = updateData.seats;
+    if (updateData.type !== undefined) catalogUpdateData.category = updateData.type;
+    if (updateData.engineCapacity !== undefined) catalogUpdateData.engineCapacity = updateData.engineCapacity;
+    if (updateData.mileage !== undefined) catalogUpdateData.mileage = updateData.mileage;
+    if (updateData.features !== undefined) catalogUpdateData.features = updateData.features;
+
+    // Update catalog table if there's data to update
+    if (Object.keys(catalogUpdateData).length > 0 && car.catalogId) {
+      await db
+        .update(carCatalogTable)
+        .set(catalogUpdateData)
+        .where(eq(carCatalogTable.id, car.catalogId));
+    }
+
+    // Get the updated car with all related data
+    const updatedCar = await db
+      .select({
+        // Car fields
+        id: carModel.id,
+        name: carModel.name,
+        number: carModel.number,
+        color: carModel.color,
+        price: carModel.price,
+        discountprice: carModel.discountprice,
+        insuranceAmount: carModel.insuranceAmount,
+        inmaintainance: carModel.inmaintainance,
+        isavailable: carModel.isavailable,
+        rcnumber: carModel.rcnumber,
+        rcimg: carModel.rcimg,
+        pollutionimg: carModel.pollutionimg,
+        insuranceimg: carModel.insuranceimg,
+        images: carModel.images,
+        vendorid: carModel.vendorid,
+        parkingid: carModel.parkingid,
+        catalogId: carModel.catalogId,
+        status: carModel.status,
+        createdAt: carModel.createdAt,
+        updatedAt: carModel.updatedAt,
+        // Catalog fields
+        maker: carCatalogTable.carMaker,
+        year: carCatalogTable.carModelYear,
+        transmission: carCatalogTable.transmission,
+        fuel: carCatalogTable.fuelType,
+        type: carCatalogTable.category,
+        seats: carCatalogTable.seats,
+        // Vendor fields
+        vendorId: UserTable.id,
+        vendorName: UserTable.name,
+        vendorAvatar: UserTable.avatar,
+        vendorEmail: UserTable.email,
+        vendorNumber: UserTable.number,
+        // Parking fields
+        parkingId: parkingTable.id,
+        parkingName: parkingTable.name,
+        parkingMainImg: parkingTable.mainimg,
+        parkingLocality: parkingTable.locality,
+        parkingCity: parkingTable.city,
+        parkingCapacity: parkingTable.capacity,
+      })
+      .from(carModel)
+      .leftJoin(carCatalogTable, eq(carModel.catalogId, carCatalogTable.id))
+      .leftJoin(UserTable, eq(carModel.vendorid, UserTable.id))
+      .leftJoin(parkingTable, eq(carModel.parkingid, parkingTable.id))
+      .where(eq(carModel.id, Number(id)))
+      .limit(1);
+
+    if (updatedCar.length === 0) {
+      return res.status(404).json(
+        new ApiResponse(404, null, 'Car not found after update')
+      );
+    }
+
+    const carData = updatedCar[0];
+    const transformedCar: CarData = {
+      id: carData.id,
+      name: carData.name,
+      maker: carData.maker || 'Unknown',
+      year: carData.year || new Date().getFullYear(),
+      carnumber: carData.number,
+      price: carData.price,
+      insurancePrice: Number(carData.insuranceAmount) || 0,
+      discountedprice: carData.discountprice || carData.price,
+      color: carData.color || 'Unknown',
+      transmission: carData.transmission || 'manual',
+      fuel: carData.fuel || 'petrol',
+      type: carData.type || 'sedan',
+      seats: carData.seats || 5,
+      rcnumber: carData.rcnumber || '',
+      rcimg: carData.rcimg || '',
+      pollutionimg: carData.pollutionimg || '',
+      insuranceimg: carData.insuranceimg || '',
+      inmaintainance: carData.inmaintainance,
+      isavailable: carData.isavailable,
+      images: carData.images || null,
+      mainimg: carData.images?.[0] || '',
+      vendorid: carData.vendorid,
+      parkingid: carData.parkingid,
+      catalogId: carData.catalogId,
+      // Vendor object with complete details
+      vendor: carData.vendorId ? {
+        id: carData.vendorId,
+        name: carData.vendorName || 'Unknown Vendor',
+        avatar: carData.vendorAvatar || null,
+        email: carData.vendorEmail || null,
+        number: carData.vendorNumber || null
+      } : null,
+      // Parking object with complete details
+      parking: carData.parkingId ? {
+        id: carData.parkingId,
+        name: carData.parkingName || 'Unknown Parking',
+        mainimg: carData.parkingMainImg || null,
+        locality: carData.parkingLocality || null,
+        city: carData.parkingCity || null,
+        capacity: carData.parkingCapacity || 0
+      } : null,
+      isapproved: true,
+      ispopular: false,
+      createdAt: carData.createdAt.toISOString(),
+      updatedAt: carData.updatedAt.toISOString(),
+    };
+
+    return res.status(200).json(
+      new ApiResponse(200, transformedCar, 'Car updated successfully')
+    );
+  } catch (error) {
+    console.error('Error updating car:', error);
+    return res.status(500).json(
+      new ApiResponse(500, null, 'Failed to update car')
     );
   }
 });
@@ -464,6 +803,7 @@ export const getCarsByBookingDateRange = asyncHandler(async (req: Request, res: 
         images: carModel.images,
         vendorid: carModel.vendorid,
         parkingid: carModel.parkingid,
+        catalogId: carModel.catalogId,
         status: carModel.status,
         createdAt: carModel.createdAt,
         updatedAt: carModel.updatedAt,
@@ -510,6 +850,7 @@ export const getCarsByBookingDateRange = asyncHandler(async (req: Request, res: 
       mainimg: car.images?.[0] || '',
       vendorid: car.vendorid,
       parkingid: car.parkingid,
+      catalogId: car.catalogId,
       isapproved: true,
       ispopular: false,
       createdAt: car.createdAt.toISOString(),

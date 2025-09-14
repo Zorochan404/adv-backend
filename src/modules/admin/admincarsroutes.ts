@@ -1,18 +1,19 @@
 import { Router } from 'express';
 import { verifyJWT } from '../middleware/auth';
 import { requireAdmin } from '../middleware/rbac';
-import { validateRequest } from '../utils/validation';
+import { validateRequest, carUpdateSchema } from '../utils/validation';
 import { z } from 'zod';
 import {
   getAllCars,
   getCarStats,
   getCarById,
   updateCarStatus,
+  updateCar,
   deleteCar,
   getCarsByBookingDateRange
 } from './admincarscontroller';
 
-const router = Router();
+const router: Router = Router();
 
 // Validation schemas
 const carStatusSchema = z.object({
@@ -30,6 +31,19 @@ const carQuerySchema = z.object({
   popularOnly: z.coerce.boolean().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
+  // Additional filtering options
+  maker: z.string().optional(),
+  type: z.string().optional(),
+  fuel: z.string().optional(),
+  transmission: z.string().optional(),
+  minPrice: z.coerce.number().min(0).optional(),
+  maxPrice: z.coerce.number().min(0).optional(),
+  minYear: z.coerce.number().min(1900).optional(),
+  maxYear: z.coerce.number().min(1900).optional(),
+  seats: z.coerce.number().min(1).optional(),
+  color: z.string().optional(),
+  vendorId: z.coerce.number().positive().optional(),
+  parkingId: z.coerce.number().positive().optional(),
   limit: z.coerce.number().min(1).max(1000).optional(),
   offset: z.coerce.number().min(0).optional()
 });
@@ -60,6 +74,13 @@ router.get(
   '/:id',
   validateRequest(carParamsSchema),
   getCarById
+);
+
+// PUT /api/v1/admin/cars/:id - Update car information
+router.put(
+  '/:id',
+  validateRequest({ ...carParamsSchema, ...carUpdateSchema }),
+  updateCar
 );
 
 // PUT /api/v1/admin/cars/:id/status - Update car status

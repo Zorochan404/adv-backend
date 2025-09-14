@@ -74,7 +74,85 @@ curl -H "Authorization: Bearer <admin_token>" \
 }
 ```
 
-### 2. Get Car Statistics
+### 2. Get Car by ID
+**GET** `/api/v1/admin/cars/:id`
+
+Retrieves detailed information for a specific car by its ID. Perfect for prefilling edit forms.
+
+#### Path Parameters
+- `id` (number, required): The unique identifier of the car
+
+#### Example Request
+```bash
+curl -H "Authorization: Bearer <admin_token>" \
+  "http://localhost:5500/api/v1/admin/cars/23"
+```
+
+#### Response
+```json
+{
+  "statusCode": 200,
+  "data": {
+    "id": 23,
+    "name": "XUV500 W8",
+    "maker": "Mahindra",
+    "year": 2023,
+    "carnumber": "AS83459",
+    "price": 1500,
+    "insurancePrice": 500,
+    "discountedprice": 1000,
+    "color": "VIBGROG",
+    "transmission": "manual",
+    "fuel": "diesel",
+    "type": "suv",
+    "seats": 7,
+    "rcnumber": "",
+    "rcimg": "",
+    "pollutionimg": "",
+    "insuranceimg": "",
+    "inmaintainance": false,
+    "isavailable": true,
+    "images": ["https://example.com/image1.jpg", "https://example.com/image2.jpg"],
+    "mainimg": "https://example.com/image1.jpg",
+      "vendorid": 6,
+      "parkingid": 1,
+      "catalogId": 5,
+      "vendor": {
+      "id": 6,
+      "name": "Vendor Name",
+      "avatar": null,
+      "email": "vendor@example.com",
+      "number": 9780623415
+    },
+    "parking": {
+      "id": 1,
+      "name": "Updated Parking Name",
+      "mainimg": "https://example.com/parking.jpg",
+      "locality": "Andheri",
+      "city": "Mumbai",
+      "capacity": 60
+    },
+    "isapproved": true,
+    "ispopular": false,
+    "createdAt": "2025-08-10T08:31:13.510Z",
+    "updatedAt": "2025-08-10T08:31:13.510Z"
+  },
+  "message": "Car details retrieved successfully",
+  "success": true
+}
+```
+
+#### Error Response (Car Not Found)
+```json
+{
+  "statusCode": 404,
+  "data": null,
+  "message": "Car not found",
+  "success": false
+}
+```
+
+### 3. Get Car Statistics
 **GET** `/api/v1/admin/cars/stats`
 
 Retrieves car statistics for dashboard cards.
@@ -101,18 +179,51 @@ curl -H "Authorization: Bearer <admin_token>" \
 }
 ```
 
-### 3. Get Single Car Details
-**GET** `/api/v1/admin/cars/:id`
+### 4. Update Car Information
+**PUT** `/api/v1/admin/cars/:id`
 
-Retrieves detailed information for a specific car.
+Updates car information including basic details, catalog information, and vendor/parking assignments. Admin-only endpoint.
 
 #### Path Parameters
 - `id` (number): Car ID
 
+#### Request Body
+```json
+{
+  "name": "Updated Car Name",
+  "price": 1600,
+  "discountedprice": 1200,
+  "insuranceAmount": 600,
+  "color": "BLUE",
+  "carnumber": "NEW123",
+  "rcnumber": "RC123456",
+  "rcimg": "rc_image_url",
+  "pollutionimg": "pollution_image_url",
+  "insuranceimg": "insurance_image_url",
+  "images": ["image1.jpg", "image2.jpg"],
+  "vendorid": 6,
+  "parkingid": 1,
+  "isavailable": true,
+  "inmaintainance": false,
+  "status": "available",
+  "maker": "Updated Maker",
+  "year": 2024,
+  "transmission": "automatic",
+  "fuel": "petrol",
+  "seats": 8,
+  "type": "suv",
+  "engineCapacity": "2.0L",
+  "mileage": "15 kmpl",
+  "features": "AC, Power Steering, ABS"
+}
+```
+
 #### Example Request
 ```bash
-curl -H "Authorization: Bearer <admin_token>" \
-  "http://localhost:5500/api/v1/admin/cars/7"
+curl -X PUT -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Updated XUV500 W8", "price": 1600, "color": "BLUE"}' \
+  "http://localhost:5500/api/v1/admin/cars/23"
 ```
 
 #### Response
@@ -120,40 +231,45 @@ curl -H "Authorization: Bearer <admin_token>" \
 {
   "statusCode": 200,
   "data": {
-    "id": 7,
-    "name": "i20 Sportz",
-    "maker": "Hyundai",
+    "id": 23,
+    "name": "Updated XUV500 W8",
+    "maker": "Mahindra",
     "year": 2023,
-    "carnumber": "CAR-HI-001",
-    "price": 1000,
+    "carnumber": "AS83459",
+    "price": 1600,
     "insurancePrice": 500,
-    "discountedprice": 850,
-    "color": "Phantom Black",
+    "discountedprice": 1000,
+    "color": "BLUE",
     "transmission": "manual",
-    "fuel": "petrol",
-    "type": "hatchback",
-    "seats": 5,
-    "rcnumber": "",
-    "rcimg": "",
-    "pollutionimg": "",
-    "insuranceimg": "",
-    "inmaintainance": false,
-    "isavailable": true,
-    "images": ["image1.jpg", "image2.jpg"],
-    "mainimg": "image1.jpg",
-    "vendorid": 8,
-    "parkingid": 1,
+    "fuel": "diesel",
+    "type": "suv",
+    "seats": 7,
+    "vendor": {
+      "id": 6,
+      "name": "Vendor Name",
+      "avatar": null,
+      "email": "vendor@example.com",
+      "number": 9780623415
+    },
+    "parking": {
+      "id": 1,
+      "name": "Updated Parking Name",
+      "mainimg": "https://...",
+      "locality": "Andheri",
+      "city": "Mumbai",
+      "capacity": 60
+    },
     "isapproved": true,
     "ispopular": false,
-    "createdAt": "2025-08-05T17:43:43.907Z",
-    "updatedAt": "2025-08-05T17:43:43.907Z"
+    "createdAt": "2025-08-10T08:31:13.510Z",
+    "updatedAt": "2025-08-10T08:31:13.510Z"
   },
-  "message": "Car details retrieved successfully",
+  "message": "Car updated successfully",
   "success": true
 }
 ```
 
-### 4. Update Car Status
+### 5. Update Car Status
 **PUT** `/api/v1/admin/cars/:id/status`
 
 Updates the status of a specific car.
@@ -193,7 +309,7 @@ curl -H "Authorization: Bearer <admin_token>" \
 }
 ```
 
-### 5. Delete Car
+### 6. Delete Car
 **DELETE** `/api/v1/admin/cars/:id`
 
 Deletes a specific car from the system.
@@ -218,7 +334,7 @@ curl -H "Authorization: Bearer <admin_token>" \
 }
 ```
 
-### 6. Filter Cars by Booking Date Range
+### 7. Filter Cars by Booking Date Range
 **POST** `/api/v1/admin/cars/filter-by-bookings`
 
 Filters cars based on booking date range.
@@ -308,6 +424,7 @@ interface Car {
   mainimg: string;
   vendorid: number;
   parkingid: number | null;
+  catalogId: number | null;
   isapproved: boolean;
   ispopular: boolean;
   createdAt: string;

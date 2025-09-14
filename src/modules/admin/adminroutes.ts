@@ -7,6 +7,8 @@ import {
   getRevenueTrends,
   getRecentBookings,
   getBookingTimelineOverview,
+  getVendorsList,
+  getParkingsList,
 } from "./admincontroller";
 import { verifyJWT } from "../middleware/auth";
 import { requireAdmin, requirePermission, Permission } from "../middleware/rbac";
@@ -22,6 +24,12 @@ const periodQuerySchema = z.object({
 
 const limitQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(50).optional().default(5)
+});
+
+const listQuerySchema = z.object({
+  search: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).optional().default(20),
+  offset: z.coerce.number().min(0).optional().default(0)
 });
 
 // ========================================
@@ -88,6 +96,28 @@ router.get(
   verifyJWT,
   requireAdmin,
   getBookingTimelineOverview
+);
+
+// ========================================
+// ADMIN MANAGEMENT ROUTES
+// ========================================
+
+// Get list of vendors
+router.get(
+  "/vendors",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(listQuerySchema),
+  getVendorsList
+);
+
+// Get list of parkings
+router.get(
+  "/parkings",
+  verifyJWT,
+  requireAdmin,
+  validateRequest(listQuerySchema),
+  getParkingsList
 );
 
 // ========================================
