@@ -121,14 +121,14 @@ router.get(
 // ADMIN MANAGEMENT ROUTES
 // ========================================
 
-// Get list of vendors
-router.get(
-  "/vendors",
-  verifyJWT,
-  requireAdmin,
-  validateRequest(listQuerySchema),
-  getVendorsList
-);
+// Get list of vendors - COMMENTED OUT: Now handled by adminvendorroutes.ts
+// router.get(
+//   "/vendors",
+//   verifyJWT,
+//   requireAdmin,
+//   validateRequest(listQuerySchema),
+//   getVendorsList
+// );
 
 // Get list of parkings
 router.get(

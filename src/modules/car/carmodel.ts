@@ -97,6 +97,7 @@ export const carRelations = relations(carModel, ({ one, many }) => ({
   vendor: one(UserTable, {
     fields: [carModel.vendorid],
     references: [UserTable.id],
+    relationName: "vendor_cars"
   }),
   parking: one(parkingTable, {
     fields: [carModel.parkingid],

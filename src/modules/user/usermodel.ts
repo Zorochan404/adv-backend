@@ -13,6 +13,7 @@ import {
 import { relations } from "drizzle-orm";
 import { parkingTable } from "../parking/parkingmodel";
 import { bookingsTable } from "../booking/bookingmodel";
+import { carModel } from "../car/carmodel";
 
 export const userRoleEnum = pgEnum("user_role", [
   "user",
@@ -59,4 +60,8 @@ export const vendorRelations = relations(UserTable, ({ one, many }) => ({
   }),
   // Add reverse relation for bookings
   bookings: many(bookingsTable),
+  // Add relation to cars - users who have created cars
+  cars: many(carModel, {
+    relationName: "vendor_cars"
+  }),
 }));
